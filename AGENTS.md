@@ -5,7 +5,7 @@ this repository. Human contributors may also find it useful.
 
 ## What this project is
 
-**LynxDebug** is a Visual Studio Code extension: a source-level debugger for Atari
+**Gearlynx Debugger** is a Visual Studio Code extension: a source-level debugger for Atari
 Lynx games built with the [cc65](https://cc65.github.io/) toolchain. It implements
 the Debug Adapter Protocol (DAP) and drives the
 [Gearlynx](https://github.com/DrHelius/Gearlynx) emulator over TCP.
@@ -18,7 +18,7 @@ the Debug Adapter Protocol (DAP) and drives the
 
 | Path | Purpose |
 |------|---------|
-| `src/extension.ts` | Extension entry point; registers the `lynx` debug type, commands, and webviews. |
+| `src/extension.ts` | Extension entry point; registers the `gearlynx` debug type, commands, and webviews. |
 | `src/lynx_debug_session.ts` | The DAP implementation (the bulk of the logic): launch/attach, breakpoints, stepping, variables. Largest file. |
 | `src/debug_monitor_client.ts` | TCP client for the Gearlynx debug-monitor protocol (Content-Length-framed JSON). Holds `CLIENT_PROTOCOL_VERSION`. |
 | `src/framebuffer_client.ts` | TCP client for the raw framebuffer stream (Screen Viewer). |
@@ -88,7 +88,7 @@ The release workflow publishes to both marketplaces using the `VSCE_PAT` and
 ## Guardrails
 
 - Never commit secrets, `out/`, or `node_modules/`.
-- Do not rename the extension id (`lynxdebug`), the debug type (`lynx`), or the
+- Do not rename the extension id (`gearlynx-debugger`), the debug type (`gearlynx`), or the
   publisher (`Ganksoft`) without a deliberate migration.
 - Keep `package.json` contributed `commands`/`configuration` in sync with the
   code that implements them.

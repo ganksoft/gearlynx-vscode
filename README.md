@@ -58,7 +58,7 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 
 - **Live screen streaming** at 60fps via raw TCP binary stream
 - **Persistent panel** in the VSCode bottom panel (survives editor restarts)
-- **Floating viewer** via the `Lynx Debug: Show Screen Viewer` command
+- **Floating viewer** via the `Gearlynx Debugger: Show Screen Viewer` command
 - **Gamepad input** through the screen viewer (keyboard events forwarded to emulator)
 - Auto-connects when a debug session starts, auto-disconnects when it ends
 
@@ -77,12 +77,12 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 ## Installing Gearlynx
 
 Gearlynx Debugger does not bundle the emulator. Install [Gearlynx](https://github.com/DrHelius/Gearlynx)
-separately, then tell the extension where it is via the `lynxDebug.gearlynxPath`
+separately, then tell the extension where it is via the `gearlynxDebug.gearlynxPath`
 setting (or the per-launch `gearlynxPath` attribute):
 
 ```jsonc
 // settings.json
-"lynxDebug.gearlynxPath": "C:\\path\\to\\Gearlynx.exe"
+"gearlynxDebug.gearlynxPath": "C:\\path\\to\\Gearlynx.exe"
 ```
 
 On a `launch` configuration the extension starts Gearlynx for you with:
@@ -114,7 +114,7 @@ the Gearlynx repository.
 ## Quick Start
 
 1. Install the Gearlynx Debugger extension from the Marketplace, or package it locally with `npm run package` and install the resulting `.vsix`.
-2. Set the Gearlynx executable path in VSCode settings: `lynxDebug.gearlynxPath`
+2. Set the Gearlynx executable path in VSCode settings: `gearlynxDebug.gearlynxPath`
 3. Compile your cc65 Lynx game with debug info:
    ```bash
    cl65 -t lynx -g --dbgfile game.dbg -o game.lnx main.c
@@ -125,7 +125,7 @@ the Gearlynx repository.
      "version": "0.2.0",
      "configurations": [
        {
-         "type": "lynx",
+         "type": "gearlynx",
          "request": "launch",
          "name": "Debug Lynx Game",
          "rom": "${workspaceFolder}/build/game.lnx",
@@ -144,7 +144,7 @@ The extension auto-detects `.dbg` or `.sym` files next to the ROM file.
 
 ```json
 {
-  "type": "lynx",
+  "type": "gearlynx",
   "request": "launch",
   "name": "Launch Lynx Game",
   "rom": "${workspaceFolder}/build/game.lnx",
@@ -179,7 +179,7 @@ gearlynx --debug-monitor --debug-monitor-port 7000 game.lnx
 
 ```json
 {
-  "type": "lynx",
+  "type": "gearlynx",
   "request": "attach",
   "name": "Attach to Gearlynx",
   "hostname": "localhost",
@@ -202,9 +202,9 @@ gearlynx --debug-monitor --debug-monitor-port 7000 game.lnx
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `lynxDebug.gearlynxPath` | `""` | Path to Gearlynx executable |
-| `lynxDebug.defaultPort` | `6502` | Default debug monitor TCP port |
-| `lynxDebug.autoOpenScreen` | `false` | Automatically open the floating Screen Viewer on session start |
+| `gearlynxDebug.gearlynxPath` | `""` | Path to Gearlynx executable |
+| `gearlynxDebug.defaultPort` | `6502` | Default debug monitor TCP port |
+| `gearlynxDebug.autoOpenScreen` | `false` | Automatically open the floating Screen Viewer on session start |
 
 ### Keymap Settings
 
@@ -212,15 +212,15 @@ The Screen Viewer captures keyboard input and forwards it to the emulator as Lyn
 
 | Setting | Default | Lynx Button |
 |---------|---------|-------------|
-| `lynxDebug.keymap.up` | `ArrowUp` | D-pad Up |
-| `lynxDebug.keymap.down` | `ArrowDown` | D-pad Down |
-| `lynxDebug.keymap.left` | `ArrowLeft` | D-pad Left |
-| `lynxDebug.keymap.right` | `ArrowRight` | D-pad Right |
-| `lynxDebug.keymap.a` | `z` | A button |
-| `lynxDebug.keymap.b` | `x` | B button |
-| `lynxDebug.keymap.option1` | `1` | Option 1 |
-| `lynxDebug.keymap.option2` | `2` | Option 2 |
-| `lynxDebug.keymap.pause` | `3` | Pause |
+| `gearlynxDebug.keymap.up` | `ArrowUp` | D-pad Up |
+| `gearlynxDebug.keymap.down` | `ArrowDown` | D-pad Down |
+| `gearlynxDebug.keymap.left` | `ArrowLeft` | D-pad Left |
+| `gearlynxDebug.keymap.right` | `ArrowRight` | D-pad Right |
+| `gearlynxDebug.keymap.a` | `z` | A button |
+| `gearlynxDebug.keymap.b` | `x` | B button |
+| `gearlynxDebug.keymap.option1` | `1` | Option 1 |
+| `gearlynxDebug.keymap.option2` | `2` | Option 2 |
+| `gearlynxDebug.keymap.pause` | `3` | Pause |
 
 ## Commands
 
@@ -228,12 +228,12 @@ All commands are available via the Command Palette (`Ctrl+Shift+P`):
 
 | Command | Description |
 |---------|-------------|
-| `Lynx Debug: Select Active Overlay` | Switch the active ROM overlay/bank segment |
-| `Lynx Debug: Show Screen Viewer` | Open a floating screen viewer window |
-| `Lynx Debug: Show Memory Map` | Open the memory map visualization |
-| `Lynx Debug: Start Trace Logger` | Begin CPU instruction trace logging |
-| `Lynx Debug: Stop Trace Logger` | Stop trace logging |
-| `Lynx Debug: Show Trace Log` | Display trace log output |
+| `Gearlynx Debugger: Select Active Overlay` | Switch the active ROM overlay/bank segment |
+| `Gearlynx Debugger: Show Screen Viewer` | Open a floating screen viewer window |
+| `Gearlynx Debugger: Show Memory Map` | Open the memory map visualization |
+| `Gearlynx Debugger: Start Trace Logger` | Begin CPU instruction trace logging |
+| `Gearlynx Debugger: Stop Trace Logger` | Stop trace logging |
+| `Gearlynx Debugger: Show Trace Log` | Display trace log output |
 
 ## Debug Info Formats
 

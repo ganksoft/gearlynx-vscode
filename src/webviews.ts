@@ -23,7 +23,7 @@ export function disconnectSharedStream(): void {
 }
 
 export class ScreenViewerPanel {
-    public static readonly viewType = 'lynxDebug.screenViewer';
+    public static readonly viewType = 'gearlynxDebug.screenViewer';
     private static instance: ScreenViewerPanel | undefined;
 
     private panel: vscode.WebviewPanel;
@@ -99,7 +99,7 @@ export class ScreenViewerPanel {
     }
 
     private loadKeymap(): void {
-        const cfg = vscode.workspace.getConfiguration('lynxDebug.keymap');
+        const cfg = vscode.workspace.getConfiguration('gearlynxDebug.keymap');
         const buttons = ['up', 'down', 'left', 'right', 'a', 'b', 'option1', 'option2', 'pause'];
         for (const btn of buttons) {
             const key = cfg.get<string>(btn, '');
@@ -184,7 +184,7 @@ export class ScreenViewerPanel {
 }
 
 export class ScreenViewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'lynxDebug.screenView';
+    public static readonly viewType = 'gearlynxDebug.screenView';
 
     private view: vscode.WebviewView | undefined;
     private monitor: DebugMonitorClient | null = null;
@@ -261,7 +261,7 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
 
     private loadKeymap(): void {
         this.keymap.clear();
-        const cfg = vscode.workspace.getConfiguration('lynxDebug.keymap');
+        const cfg = vscode.workspace.getConfiguration('gearlynxDebug.keymap');
         for (const btn of ['up', 'down', 'left', 'right', 'a', 'b', 'option1', 'option2', 'pause']) {
             const key = cfg.get<string>(btn, '');
             if (key) this.keymap.set(key, btn);

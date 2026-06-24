@@ -12,12 +12,12 @@ let traceOutputChannel: vscode.OutputChannel | undefined;
 export function activate(context: vscode.ExtensionContext): void {
     const factory = new LynxDebugAdapterFactory();
     context.subscriptions.push(
-        vscode.debug.registerDebugAdapterDescriptorFactory('lynx', factory)
+        vscode.debug.registerDebugAdapterDescriptorFactory('gearlynx', factory)
     );
 
     const provider = new LynxConfigurationProvider();
     context.subscriptions.push(
-        vscode.debug.registerDebugConfigurationProvider('lynx', provider)
+        vscode.debug.registerDebugConfigurationProvider('gearlynx', provider)
     );
 
     // Register persistent screen view in panel
@@ -30,7 +30,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Overlay selector command
     context.subscriptions.push(
-        vscode.commands.registerCommand('lynxDebug.selectOverlay', async () => {
+        vscode.commands.registerCommand('gearlynxDebug.selectOverlay', async () => {
             if (!activeSession) return;
             const debugInfo = activeSession.getDebugInfo();
             if (!debugInfo || !debugInfo.hasOverlays()) {
@@ -67,7 +67,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Screen viewer command
     context.subscriptions.push(
-        vscode.commands.registerCommand('lynxDebug.showScreen', () => {
+        vscode.commands.registerCommand('gearlynxDebug.showScreen', () => {
             if (!activeSession) {
                 vscode.window.showInformationMessage('No active Lynx debug session.');
                 return;
@@ -78,7 +78,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Memory map command
     context.subscriptions.push(
-        vscode.commands.registerCommand('lynxDebug.showMemoryMap', () => {
+        vscode.commands.registerCommand('gearlynxDebug.showMemoryMap', () => {
             if (!activeSession) {
                 vscode.window.showInformationMessage('No active Lynx debug session.');
                 return;
@@ -94,7 +94,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Trace logger commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('lynxDebug.startTraceLog', async () => {
+        vscode.commands.registerCommand('gearlynxDebug.startTraceLog', async () => {
             if (!activeSession) return;
             const monitor = activeSession.getMonitor();
             await monitor.setTraceLog(true);
@@ -103,7 +103,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('lynxDebug.stopTraceLog', async () => {
+        vscode.commands.registerCommand('gearlynxDebug.stopTraceLog', async () => {
             if (!activeSession) return;
             const monitor = activeSession.getMonitor();
             await monitor.setTraceLog(false);
@@ -112,7 +112,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('lynxDebug.showTraceLog', async () => {
+        vscode.commands.registerCommand('gearlynxDebug.showTraceLog', async () => {
             if (!activeSession) {
                 vscode.window.showInformationMessage('No active Lynx debug session.');
                 return;
@@ -134,13 +134,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Status bar item
     overlayStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
-    overlayStatusBarItem.command = 'lynxDebug.selectOverlay';
+    overlayStatusBarItem.command = 'gearlynxDebug.selectOverlay';
     context.subscriptions.push(overlayStatusBarItem);
 
     // Show/hide status bar based on debug session
     context.subscriptions.push(
         vscode.debug.onDidStartDebugSession((session) => {
-            if (session.type === 'lynx') {
+            if (session.type === 'gearlynx') {
                 updateOverlayStatusBar(null);
 
                 if (activeSession) {
@@ -156,7 +156,7 @@ export function activate(context: vscode.ExtensionContext): void {
                     }, 1000);
 
                     // Auto-open floating panel if setting enabled
-                    const cfg = vscode.workspace.getConfiguration('lynxDebug');
+                    const cfg = vscode.workspace.getConfiguration('gearlynxDebug');
                     if (cfg.get<boolean>('autoOpenScreen', false)) {
                         setTimeout(() => {
                             ScreenViewerPanel.show(context.extensionUri, monitor);
@@ -168,7 +168,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     context.subscriptions.push(
         vscode.debug.onDidTerminateDebugSession((session) => {
-            if (session.type === 'lynx') {
+            if (session.type === 'gearlynx') {
                 overlayStatusBarItem?.hide();
                 disconnectSharedStream();
                 screenViewProvider?.clearConnection();
@@ -228,7 +228,7 @@ class LynxConfigurationProvider implements vscode.DebugConfigurationProvider {
             // "Just press F5" with no launch.json
             const editor = vscode.window.activeTextEditor;
             if (editor) {
-                config.type = 'lynx';
+                config.type = 'gearlynx';
                 config.name = 'Launch Lynx';
                 config.request = 'launch';
                 config.rom = '${workspaceFolder}/game.lnx';
@@ -238,13 +238,13 @@ class LynxConfigurationProvider implements vscode.DebugConfigurationProvider {
 
         // Fill in default port from settings
         if (!config.port) {
-            const settings = vscode.workspace.getConfiguration('lynxDebug');
+            const settings = vscode.workspace.getConfiguration('gearlynxDebug');
             config.port = settings.get<number>('defaultPort', 6502);
         }
 
         // Fill in gearlynx path from settings if not in launch config
         if (config.request === 'launch' && !config.gearlynxPath) {
-            const settings = vscode.workspace.getConfiguration('lynxDebug');
+            const settings = vscode.workspace.getConfiguration('gearlynxDebug');
             const globalPath = settings.get<string>('gearlynxPath', '');
             if (globalPath) {
                 config.gearlynxPath = globalPath;

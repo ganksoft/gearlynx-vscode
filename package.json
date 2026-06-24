@@ -1,9 +1,9 @@
 {
-  "name": "gearlynxdebugger",
+  "name": "gearlynx-debugger",
   "displayName": "Gearlynx Debugger",
   "description": "Source-level debugger for Atari Lynx games using the Gearlynx emulator",
   "version": "0.1.0",
-  "publisher": "Ganksoft",
+  "publisher": "ganksoft",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "images/icon.png",
   "galleryBanner": {
@@ -35,57 +35,57 @@
     "Debuggers"
   ],
   "activationEvents": [
-    "onDebugResolve:lynx"
+    "onDebugResolve:gearlynx"
   ],
   "contributes": {
     "commands": [
       {
-        "command": "lynxDebug.selectOverlay",
+        "command": "gearlynxDebug.selectOverlay",
         "title": "Select Active Overlay",
-        "category": "Lynx Debug"
+        "category": "Gearlynx Debugger"
       },
       {
-        "command": "lynxDebug.showScreen",
+        "command": "gearlynxDebug.showScreen",
         "title": "Show Screen Viewer",
-        "category": "Lynx Debug"
+        "category": "Gearlynx Debugger"
       },
       {
-        "command": "lynxDebug.showMemoryMap",
+        "command": "gearlynxDebug.showMemoryMap",
         "title": "Show Memory Map",
-        "category": "Lynx Debug"
+        "category": "Gearlynx Debugger"
       },
       {
-        "command": "lynxDebug.startTraceLog",
+        "command": "gearlynxDebug.startTraceLog",
         "title": "Start Trace Logger",
-        "category": "Lynx Debug"
+        "category": "Gearlynx Debugger"
       },
       {
-        "command": "lynxDebug.stopTraceLog",
+        "command": "gearlynxDebug.stopTraceLog",
         "title": "Stop Trace Logger",
-        "category": "Lynx Debug"
+        "category": "Gearlynx Debugger"
       },
       {
-        "command": "lynxDebug.showTraceLog",
+        "command": "gearlynxDebug.showTraceLog",
         "title": "Show Trace Log",
-        "category": "Lynx Debug"
+        "category": "Gearlynx Debugger"
       }
     ],
     "viewsContainers": {
       "panel": [
         {
-          "id": "lynxDebugPanel",
+          "id": "gearlynxDebugPanel",
           "title": "Lynx",
           "icon": "$(game)"
         }
       ]
     },
     "views": {
-      "lynxDebugPanel": [
+      "gearlynxDebugPanel": [
         {
           "type": "webview",
-          "id": "lynxDebug.screenView",
+          "id": "gearlynxDebug.screenView",
           "name": "Screen",
-          "when": "debugType == 'lynx'"
+          "when": "debugType == 'gearlynx'"
         }
       ]
     },
@@ -96,8 +96,8 @@
     ],
     "debuggers": [
       {
-        "type": "lynx",
-        "label": "Lynx Debug",
+        "type": "gearlynx",
+        "label": "Gearlynx Debugger",
         "languages": ["c", "cpp", "asm"],
         "configurationAttributes": {
           "launch": {
@@ -175,7 +175,7 @@
         },
         "initialConfigurations": [
           {
-            "type": "lynx",
+            "type": "gearlynx",
             "request": "launch",
             "name": "Launch Lynx Game",
             "rom": "${workspaceFolder}/game.lnx",
@@ -184,10 +184,10 @@
         ],
         "configurationSnippets": [
           {
-            "label": "Lynx Debug: Launch",
+            "label": "Gearlynx Debugger: Launch",
             "description": "Launch a Lynx game in Gearlynx with debugging",
             "body": {
-              "type": "lynx",
+              "type": "gearlynx",
               "request": "launch",
               "name": "Launch Lynx",
               "rom": "^\"\\${workspaceFolder}/${1:game.lnx}\"",
@@ -195,10 +195,10 @@
             }
           },
           {
-            "label": "Lynx Debug: Attach",
+            "label": "Gearlynx Debugger: Attach",
             "description": "Attach to a running Gearlynx instance",
             "body": {
-              "type": "lynx",
+              "type": "gearlynx",
               "request": "attach",
               "name": "Attach to Gearlynx",
               "port": 6502
@@ -208,64 +208,64 @@
       }
     ],
     "configuration": {
-      "title": "Lynx Debug",
+      "title": "Gearlynx Debugger",
       "properties": {
-        "lynxDebug.gearlynxPath": {
+        "gearlynxDebug.gearlynxPath": {
           "type": "string",
           "default": "",
           "description": "Path to Gearlynx executable"
         },
-        "lynxDebug.defaultPort": {
+        "gearlynxDebug.defaultPort": {
           "type": "number",
           "default": 6502,
           "description": "Default debug monitor port"
         },
-        "lynxDebug.autoOpenScreen": {
+        "gearlynxDebug.autoOpenScreen": {
           "type": "boolean",
           "default": false,
           "description": "Automatically open the Screen Viewer when a debug session starts"
         },
-        "lynxDebug.keymap.up": {
+        "gearlynxDebug.keymap.up": {
           "type": "string",
           "default": "ArrowUp",
           "description": "Key for D-pad Up"
         },
-        "lynxDebug.keymap.down": {
+        "gearlynxDebug.keymap.down": {
           "type": "string",
           "default": "ArrowDown",
           "description": "Key for D-pad Down"
         },
-        "lynxDebug.keymap.left": {
+        "gearlynxDebug.keymap.left": {
           "type": "string",
           "default": "ArrowLeft",
           "description": "Key for D-pad Left"
         },
-        "lynxDebug.keymap.right": {
+        "gearlynxDebug.keymap.right": {
           "type": "string",
           "default": "ArrowRight",
           "description": "Key for D-pad Right"
         },
-        "lynxDebug.keymap.a": {
+        "gearlynxDebug.keymap.a": {
           "type": "string",
           "default": "z",
           "description": "Key for A button"
         },
-        "lynxDebug.keymap.b": {
+        "gearlynxDebug.keymap.b": {
           "type": "string",
           "default": "x",
           "description": "Key for B button"
         },
-        "lynxDebug.keymap.option1": {
+        "gearlynxDebug.keymap.option1": {
           "type": "string",
           "default": "1",
           "description": "Key for Option 1"
         },
-        "lynxDebug.keymap.option2": {
+        "gearlynxDebug.keymap.option2": {
           "type": "string",
           "default": "2",
           "description": "Key for Option 2"
         },
-        "lynxDebug.keymap.pause": {
+        "gearlynxDebug.keymap.pause": {
           "type": "string",
           "default": "3",
           "description": "Key for Pause"

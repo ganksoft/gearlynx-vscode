@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { SegmentInfo } from './types';
 
 export class MemoryMapPanel {
-    public static readonly viewType = 'lynxDebug.memoryMap';
+    public static readonly viewType = 'gearlynxDebug.memoryMap';
     private static instance: MemoryMapPanel | undefined;
     private panel: vscode.WebviewPanel;
 

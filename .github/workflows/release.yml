@@ -30,19 +30,19 @@ jobs:
         run: npm run lint
 
       - name: Package VSIX
-        run: npx @vscode/vsce package --out lynxdebug.vsix
+        run: npx @vscode/vsce package --out gearlynx-debugger.vsix
 
       - name: Publish to Visual Studio Marketplace
-        run: npx @vscode/vsce publish --packagePath lynxdebug.vsix
+        run: npx @vscode/vsce publish --packagePath gearlynx-debugger.vsix
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
-        run: npx ovsx publish lynxdebug.vsix
+        run: npx ovsx publish gearlynx-debugger.vsix
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
       - name: Attach VSIX to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: lynxdebug.vsix
+          files: gearlynx-debugger.vsix

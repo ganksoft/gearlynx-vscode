@@ -28,10 +28,10 @@ jobs:
         run: npm run lint
 
       - name: Package VSIX
-        run: npx @vscode/vsce package --out lynxdebug.vsix
+        run: npx @vscode/vsce package --out gearlynx-debugger.vsix
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lynxdebug-vsix
-          path: lynxdebug.vsix
+          name: gearlynx-debugger-vsix
+          path: gearlynx-debugger.vsix
