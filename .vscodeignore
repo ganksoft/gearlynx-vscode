@@ -1,0 +1,18 @@
+# Sources and build config (the compiled output in out/ is what ships)
+src/**
+tsconfig.json
+eslint.config.mjs
+
+# Tooling and dev files
+.github/**
+.vscode/**
+.gitignore
+.vscodeignore
+package-lock.json
+
+# Source maps and TS declaration files
+out/**/*.map
+out/**/*.d.ts
+
+# Misc
+**/.DS_Store
