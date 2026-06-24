@@ -9,6 +9,7 @@ export class DebugInfo {
     private sourceRoots: string[];
     private activeOverlaySegmentId: number | null = null;
     private activeOverlayName: string | null = null;
+    private sourceResolveCache = new Map<string, string | null>();
 
     private constructor(data: DebugInfoData, sourceRoots: string[]) {
         this.data = data;
@@ -195,19 +196,76 @@ export class DebugInfo {
     }
 
     private resolveLocation(loc: SourceLocation): SourceLocation | null {
-        // Try to resolve the source path to an absolute path
-        if (path.isAbsolute(loc.source) && fs.existsSync(loc.source)) {
-            return loc;
+        const resolved = this.resolveSourcePath(loc.source);
+        if (resolved === null) {
+            return null;
+        }
+        return resolved === loc.source ? loc : { ...loc, source: resolved };
+    }
+
+    // Resolve a source path recorded in the debug info to an existing on-disk
+    // path. cc65 .dbg files store source file names inconsistently: some are
+    // absolute (possibly from another machine or a moved project), others are
+    // relative to an arbitrary build directory. Handle both by:
+    //   1. Using an absolute path as-is when it exists.
+    //   2. Resolving a relative path against each source root.
+    //   3. Falling back to matching progressively shorter path tails (most
+    //      specific first) under each source root, which relocates absolute
+    //      paths from another machine and relative paths whose leading segments
+    //      differ from the local layout.
+    // Returns null when no existing file can be found (never a bad path).
+    private resolveSourcePath(source: string): string | null {
+        if (!source) {
+            return null;
         }
 
-        for (const root of this.sourceRoots) {
-            const resolved = path.resolve(root, loc.source);
-            if (fs.existsSync(resolved)) {
-                return { ...loc, source: resolved };
+        const cached = this.sourceResolveCache.get(source);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        const result = this.computeSourcePath(source);
+        this.sourceResolveCache.set(source, result);
+        return result;
+    }
+
+    private computeSourcePath(source: string): string | null {
+        // 1. Absolute path that exists on disk.
+        if (path.isAbsolute(source) && fs.existsSync(source)) {
+            return source;
+        }
+
+        // 2. Relative path resolved directly against each source root.
+        if (!path.isAbsolute(source)) {
+            for (const root of this.sourceRoots) {
+                const resolved = path.resolve(root, source);
+                if (fs.existsSync(resolved)) {
+                    return resolved;
+                }
             }
         }
 
-        // File not found on disk -- don't return a bad path
+        // 3. Tail matching: strip leading segments and look for the remainder
+        //    under each source root, longest (most specific) tail first.
+        const segments = source
+            .replace(/\\/g, '/')
+            .split('/')
+            .filter((s) => s.length > 0 && s !== '.');
+
+        for (let i = 0; i < segments.length; i++) {
+            const tail = segments.slice(i).join(path.sep);
+            if (path.isAbsolute(tail)) {
+                continue;
+            }
+            for (const root of this.sourceRoots) {
+                const candidate = path.resolve(root, tail);
+                if (fs.existsSync(candidate)) {
+                    return candidate;
+                }
+            }
+        }
+
+        // No existing file found -- don't return a bad path.
         return null;
     }
 

@@ -1,6 +1,6 @@
 {
-  "name": "lynxdebug",
-  "displayName": "LynxDebug",
+  "name": "gearlynxdebugger",
+  "displayName": "Gearlynx Debugger",
   "description": "Source-level debugger for Atari Lynx games using the Gearlynx emulator",
   "version": "0.1.0",
   "publisher": "Ganksoft",
