@@ -462,7 +462,7 @@ export class Cc65DebugInfo {
                 attrs.set(k, parseInt(v.substring(2), 16));
             } else if (v.startsWith('$')) {
                 attrs.set(k, parseInt(v.substring(1), 16));
-            } else if (/^\d+$/.test(v)) {
+            } else if (/^-?\d+$/.test(v)) {
                 attrs.set(k, parseInt(v, 10));
             } else {
                 attrs.set(k, v);

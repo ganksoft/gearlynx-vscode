@@ -38,26 +38,25 @@ export class DebugInfo {
     }
 
     findSourceForAddress(address: number): SourceLocation | null {
-        // Exact match first
-        let loc = this.data.addressToSource.get(address);
-        if (loc && this.isSegmentActive(loc.segmentId)) {
-            return this.resolveLocation(loc);
-        }
-
-        // Find nearest address <= target, respecting active overlay
+        // Find the nearest mapping (largest start address) whose range covers the
+        // target, whose segment is active, and whose source file actually exists
+        // on disk. Skipping unresolvable mappings is essential: cc65 emits runtime
+        // assembly mappings (e.g. bootldr.s, not on the user's disk) that share
+        // addresses with C statements. If such a mapping shadowed the enclosing C
+        // line, the address would report as unmapped during stepping.
+        let best: SourceLocation | null = null;
         let bestAddr = -1;
         for (const [addr, candidate] of this.data.addressToSource) {
-            if (addr <= address && addr > bestAddr && this.isSegmentActive(candidate.segmentId)) {
-                bestAddr = addr;
+            if (addr <= address && address <= candidate.addressEnd && addr > bestAddr
+                && this.isSegmentActive(candidate.segmentId)) {
+                const resolved = this.resolveLocation(candidate);
+                if (resolved) {
+                    best = resolved;
+                    bestAddr = addr;
+                }
             }
         }
-        if (bestAddr >= 0) {
-            loc = this.data.addressToSource.get(bestAddr);
-            if (loc && address <= loc.addressEnd && this.isSegmentActive(loc.segmentId)) {
-                return this.resolveLocation(loc);
-            }
-        }
-        return null;
+        return best;
     }
 
     findNearestCodeLine(sourcePath: string, line: number): SourceLocation | null {
