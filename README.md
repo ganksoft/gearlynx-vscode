@@ -18,7 +18,7 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 
 - **Source-level debugging** for C and 6502 assembly via cc65 `.dbg` files
 - **Symbol file fallback** via `.sym` files for assembly-only projects
-- **Step controls**: step in, step over, step out, step frame (next VBlank), continue, pause
+- **Step controls**: step in, step over, step out, continue, pause
 - **Step back** (frame-level rewind using Gearlynx's rewind feature)
 - **Source-line stepping**: steps through 6502 instructions until the source line changes
 - **Call stack** with source file locations and symbol names
@@ -249,7 +249,6 @@ Or with CMake-based projects, ensure `-g` and `--dbgfile` flags are passed to th
 
 Provides symbol names and addresses only (no source-line mapping, no locals, no overlays). Supports multiple formats:
 - cc65 `.sym` output
-- VICE label format (`al CXXXX .label`)
 - Generic `ADDRESS LABEL` and `LABEL = $ADDRESS`
 
 ## Architecture
@@ -276,7 +275,7 @@ VSCode                              Gearlynx
 ## Caveats and Known Limitations
 
 - **cc65 switch statements**: The compiler maps switch dispatch code (jump table) to the closing `}` brace of the switch. Stepping over a `switch(...)` line will stop at the closing brace first, then enter the matching case on the next step. This is a cc65 debug info quirk, not a bug.
-- **Local variables**: cc65 often omits stack offsets for local `auto` variables in its debug info. Locals without offset info appear with address-only values.
+- **Local variables**: cc65 `auto` locals are read from the software stack using the scope/csym offsets in the debug info. Values are only meaningful inside the function body once its stack frame is established, and the stack-pointer correction is heuristic.
 - **Intermediate files**: cc65-generated assembly files (`.s`, `.mac`, `.inc` intermediates) are automatically filtered from source resolution.
 - **Step back**: Uses Gearlynx's rewind feature and operates at frame granularity (one full frame per step-back), not instruction-level.
 - **Overlay selection**: Only one overlay bank is active at a time. Source resolution and globals display reflect the selected overlay. Switch overlays via the debug toolbar button or the Overlays panel tree (both only appear when overlays are detected in the debug info). With no overlay selected the address space is ambiguous; select the bank that is currently resident.
