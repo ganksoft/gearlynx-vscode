@@ -10,6 +10,12 @@ export class DebugInfo {
     private activeOverlaySegmentId: number | null = null;
     private activeOverlayName: string | null = null;
     private sourceResolveCache = new Map<string, string | null>();
+    // Memoize address->location lookups. findSourceForAddress is an O(n) scan of
+    // the whole address map and is called once per single-instruction step during
+    // source-line stepping, so without this it dominates when stepping through
+    // unmapped code (null results are cached too). Invalidated on overlay change,
+    // the only thing that alters which mappings resolve.
+    private addressLocationCache = new Map<number, SourceLocation | null>();
 
     private constructor(data: DebugInfoData, sourceRoots: string[]) {
         this.data = data;
@@ -38,6 +44,11 @@ export class DebugInfo {
     }
 
     findSourceForAddress(address: number): SourceLocation | null {
+        const cached = this.addressLocationCache.get(address);
+        if (cached !== undefined) {
+            return cached;
+        }
+
         // Find the nearest mapping (largest start address) whose range covers the
         // target, whose segment is active, and whose source file actually exists
         // on disk. Skipping unresolvable mappings is essential: cc65 emits runtime
@@ -56,6 +67,7 @@ export class DebugInfo {
                 }
             }
         }
+        this.addressLocationCache.set(address, best);
         return best;
     }
 
@@ -135,6 +147,7 @@ export class DebugInfo {
             if (idx >= 0) {
                 this.activeOverlaySegmentId = group.segmentIds[idx];
                 this.activeOverlayName = segmentName;
+                this.addressLocationCache.clear();
                 return;
             }
         }
@@ -147,6 +160,7 @@ export class DebugInfo {
     clearActiveOverlay(): void {
         this.activeOverlaySegmentId = null;
         this.activeOverlayName = null;
+        this.addressLocationCache.clear();
     }
 
     private isSegmentActive(segmentId: number): boolean {
