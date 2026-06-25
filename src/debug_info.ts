@@ -182,10 +182,13 @@ export class DebugInfo {
         targetLine: number,
         _sourcePath: string
     ): SourceLocation | null {
-        // Exact line match
+        // Exact line match -- use the lowest address (the line's entry point).
+        // A line maps to multiple addresses and the array is in parse order, not
+        // address order, so addrs[0] can be a later occurrence of the line; a
+        // breakpoint must land at the line's first instruction.
         const addrs = map.get(targetLine);
         if (addrs && addrs.length > 0) {
-            const loc = this.data.addressToSource.get(addrs[0]);
+            const loc = this.data.addressToSource.get(Math.min(...addrs));
             if (loc) return this.resolveLocation(loc);
         }
 
@@ -200,7 +203,7 @@ export class DebugInfo {
         if (bestLine >= 0) {
             const nearAddrs = map.get(bestLine);
             if (nearAddrs && nearAddrs.length > 0) {
-                const loc = this.data.addressToSource.get(nearAddrs[0]);
+                const loc = this.data.addressToSource.get(Math.min(...nearAddrs));
                 if (loc) return this.resolveLocation(loc);
             }
         }
