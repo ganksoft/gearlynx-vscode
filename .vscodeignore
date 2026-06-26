@@ -9,13 +9,16 @@ eslint.config.mjs
 .gitignore
 .vscodeignore
 package-lock.json
+AGENTS.md
 
 # Source maps and TS declaration files
 out/**/*.map
 out/**/*.d.ts
 
-# README screenshot (Marketplace renders it from the GitHub raw URL, no need to ship it)
-images/glvs-sample.png
+# README screenshots (Marketplace renders them from the GitHub raw URL, no need
+# to ship them); keep only the extension icon that package.json references
+images/**
+!images/icon.png
 
 # Misc
 **/.DS_Store

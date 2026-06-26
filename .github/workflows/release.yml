@@ -35,7 +35,7 @@ jobs:
         run: npx @vscode/vsce package --out gearlynx-debugger.vsix
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -50,6 +50,6 @@ jobs:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
       - name: Attach VSIX to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: gearlynx-debugger.vsix
