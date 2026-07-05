@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import { LynxDebugSession } from './lynx_debug_session';
 import { expandTilde } from './paths';
 import { ScreenViewProvider, connectSharedStream, disconnectSharedStream } from './webviews';
 import { MemoryMapPanel } from './memory_map';
 import { SymbolViewProvider } from './symbol_table';
+import { DebugInfo } from './debug_info';
+import { WorkspaceDebugInfoProvider } from './workspace_debug_info';
 import { getLogChannel, logInfo } from './log';
 
 let activeSession: LynxDebugSession | undefined;
@@ -12,6 +13,14 @@ let screenViewProvider: ScreenViewProvider | undefined;
 let symbolViewProvider: SymbolViewProvider | undefined;
 let overlayTreeProvider: OverlayTreeProvider | undefined;
 let traceOutputChannel: vscode.OutputChannel | undefined;
+let workspaceDebugInfoProvider: WorkspaceDebugInfoProvider | undefined;
+
+// Session data takes precedence; falls back to the workspace-scanned debug
+// info (from launch.json, no session required) so panels work while writing
+// code, not just while debugging.
+function getEffectiveDebugInfo(): DebugInfo | null {
+    return activeSession?.getDebugInfo() ?? workspaceDebugInfoProvider?.getDebugInfo() ?? null;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(getLogChannel());
@@ -35,7 +44,8 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Symbol table view in panel -- populated from the active session's debug info.
+    // Symbol table view in panel -- populated from the effective debug info
+    // (active session, or the workspace scan below when nothing is running).
     symbolViewProvider = new SymbolViewProvider();
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(SymbolViewProvider.viewType, symbolViewProvider, {
@@ -48,6 +58,15 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.window.registerTreeDataProvider('gearlynxDebug.overlayView', overlayTreeProvider)
     );
+
+    // Resolves debug info from launch.json with no session running, so
+    // Symbols/Overlays/Memory Map work while writing code, not just while
+    // debugging. Session data takes precedence once a session starts.
+    workspaceDebugInfoProvider = new WorkspaceDebugInfoProvider();
+    context.subscriptions.push(workspaceDebugInfoProvider);
+    context.subscriptions.push(workspaceDebugInfoProvider.onDidChange(() => syncDebugInfoUi()));
+    syncDebugInfoUi();
+
     // Internal command invoked by tree items (and reusable elsewhere).
     context.subscriptions.push(
         vscode.commands.registerCommand('gearlynxDebug.setOverlay', (name: string | null) => selectOverlay(name))
@@ -56,8 +75,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Overlay selector command
     context.subscriptions.push(
         vscode.commands.registerCommand('gearlynxDebug.selectOverlay', async () => {
-            if (!activeSession) return;
-            const debugInfo = activeSession.getDebugInfo();
+            const debugInfo = getEffectiveDebugInfo();
             if (!debugInfo || !debugInfo.hasOverlays()) {
                 vscode.window.showInformationMessage('No overlays detected in debug info.');
                 return;
@@ -97,11 +115,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Memory map command
     context.subscriptions.push(
         vscode.commands.registerCommand('gearlynxDebug.showMemoryMap', () => {
-            if (!activeSession) {
-                vscode.window.showInformationMessage('No active Lynx debug session.');
-                return;
-            }
-            const debugInfo = activeSession.getDebugInfo();
+            const debugInfo = getEffectiveDebugInfo();
             if (!debugInfo) {
                 vscode.window.showInformationMessage('No debug info loaded.');
                 return;
@@ -154,21 +168,11 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.debug.onDidStartDebugSession((session) => {
             if (session.type === 'gearlynx') {
-                syncOverlayUi();
-
-                // Reveal the Screen view (and its panel) on debug start. The
-                // auto-generated <viewId>.focus command works even before the
-                // view has been resolved.
-                void vscode.commands.executeCommand('gearlynxDebug.screenView.focus');
+                syncDebugInfoUi();
 
                 if (activeSession) {
                     const monitor = activeSession.getMonitor();
                     const streamPort = activeSession.getStreamPort();
-
-                    const debugInfo = activeSession.getDebugInfo();
-                    if (debugInfo) {
-                        symbolViewProvider?.setDebugInfo(debugInfo);
-                    }
 
                     // Connect shared framebuffer stream
                     setTimeout(() => {
@@ -186,9 +190,8 @@ export function activate(context: vscode.ExtensionContext): void {
             if (session.type === 'gearlynx') {
                 disconnectSharedStream();
                 screenViewProvider?.clearConnection();
-                symbolViewProvider?.clearDebugInfo();
                 activeSession = undefined;
-                syncOverlayUi();
+                syncDebugInfoUi();
             }
         })
     );
@@ -198,7 +201,7 @@ export function activate(context: vscode.ExtensionContext): void {
 // debug-toolbar quickpick button and the panel tree) routes through here, so
 // they can never drift out of sync: each just re-reads getActiveOverlayName().
 function selectOverlay(name: string | null): void {
-    const debugInfo = activeSession?.getDebugInfo();
+    const debugInfo = getEffectiveDebugInfo();
     if (!debugInfo) return;
     if (name === null) {
         debugInfo.clearActiveOverlay();
@@ -206,22 +209,32 @@ function selectOverlay(name: string | null): void {
         debugInfo.setActiveOverlay(name);
     }
     overlayTreeProvider?.refresh();
-    // Re-emit stopped event so VSCode re-queries the stack trace and
-    // repositions the editor to the correct source line.
-    activeSession?.refreshStoppedState();
+    if (activeSession) {
+        // Re-emit stopped event so VSCode re-queries the stack trace and
+        // repositions the editor to the correct source line.
+        activeSession.refreshStoppedState();
+    }
 }
 
-// Refresh overlay UI for the current session: toolbar/tree visibility context
-// key and tree contents.
-function syncOverlayUi(): void {
-    const hasOverlays = activeSession?.getDebugInfo()?.hasOverlays() ?? false;
-    void vscode.commands.executeCommand('setContext', 'gearlynxDebug.hasOverlays', hasOverlays);
+// Refresh all debug-info-derived UI: the "project detected" and "has overlays"
+// context keys, the overlay tree, and the Symbols panel. Called whenever the
+// effective debug info could have changed -- session start/end or a workspace
+// rescan (rebuild, launch.json edit).
+function syncDebugInfoUi(): void {
+    const debugInfo = getEffectiveDebugInfo();
+    void vscode.commands.executeCommand('setContext', 'gearlynxDebug.projectDetected', debugInfo !== null);
+    void vscode.commands.executeCommand('setContext', 'gearlynxDebug.hasOverlays', debugInfo?.hasOverlays() ?? false);
     overlayTreeProvider?.refresh();
+    if (debugInfo) {
+        symbolViewProvider?.setDebugInfo(debugInfo);
+    } else {
+        symbolViewProvider?.clearDebugInfo();
+    }
 }
 
 export function setActiveSession(session: LynxDebugSession | undefined): void {
     activeSession = session;
-    syncOverlayUi();
+    syncDebugInfoUi();
 }
 
 export function deactivate(): void {
@@ -283,23 +296,10 @@ class LynxConfigurationProvider implements vscode.DebugConfigurationProvider {
             config.rom = expandTilde(config.rom);
         }
         if (config.rom && !config.debugFile) {
-            const baseName = config.rom.replace(/\.[^.]+$/, '');
-            // Try common naming patterns:
-            // game.dbg, game.lnx.dbg, game.sym, game.lnx.sym
-            const candidates = [
-                baseName + '.dbg',
-                config.rom + '.dbg',
-                baseName + '.sym',
-                config.rom + '.sym',
-            ];
-            for (const debugPath of candidates) {
-                if (fs.existsSync(debugPath)) {
-                    config.debugFile = debugPath;
-                    break;
-                }
-            }
-            if (config.debugFile) {
-                logInfo(`Auto-detected debug file: ${config.debugFile}`);
+            const { found, candidates } = DebugInfo.findCandidatePath(config.rom);
+            config.debugFile = found;
+            if (found) {
+                logInfo(`Auto-detected debug file: ${found}`);
             } else {
                 logInfo(`No debug file found for ${config.rom} (tried: ${candidates.join(', ')})`);
             }
@@ -325,7 +325,7 @@ class OverlayTreeProvider implements vscode.TreeDataProvider<OverlayChoice> {
 
     getTreeItem(choice: OverlayChoice): vscode.TreeItem {
         const item = new vscode.TreeItem(choice.label);
-        const active = activeSession?.getDebugInfo()?.getActiveOverlayName() ?? null;
+        const active = getEffectiveDebugInfo()?.getActiveOverlayName() ?? null;
         item.iconPath = new vscode.ThemeIcon(choice.value === active ? 'check' : 'blank');
         item.command = {
             command: 'gearlynxDebug.setOverlay',
@@ -336,7 +336,7 @@ class OverlayTreeProvider implements vscode.TreeDataProvider<OverlayChoice> {
     }
 
     getChildren(): OverlayChoice[] {
-        const debugInfo = activeSession?.getDebugInfo();
+        const debugInfo = getEffectiveDebugInfo();
         if (!debugInfo || !debugInfo.hasOverlays()) return [];
         const choices: OverlayChoice[] = [{ label: 'None (no overlay)', value: null }];
         for (const group of debugInfo.getOverlayGroups()) {

@@ -43,6 +43,22 @@ export class DebugInfo {
         return new DebugInfo(data, roots);
     }
 
+    // Common cc65 debug-file naming conventions relative to a rom path: game.dbg,
+    // game.lnx.dbg, game.sym, game.lnx.sym. Shared by launch-config resolution
+    // (extension.ts) and the no-session workspace scan (workspace_debug_info.ts)
+    // so both pick the same file. Returns the full candidate list too, so callers
+    // can log what was tried when nothing is found.
+    static findCandidatePath(rom: string): { found?: string; candidates: string[] } {
+        const baseName = rom.replace(/\.[^.]+$/, '');
+        const candidates = [
+            baseName + '.dbg',
+            rom + '.dbg',
+            baseName + '.sym',
+            rom + '.sym',
+        ];
+        return { found: candidates.find(c => fs.existsSync(c)), candidates };
+    }
+
     findSourceForAddress(address: number): SourceLocation | null {
         const cached = this.addressLocationCache.get(address);
         if (cached !== undefined) {

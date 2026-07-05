@@ -35,7 +35,9 @@
     "Debuggers"
   ],
   "activationEvents": [
-    "onDebugResolve:gearlynx"
+    "onDebugResolve:gearlynx",
+    "onView:gearlynxDebug.symbolView",
+    "onView:gearlynxDebug.screenView"
   ],
   "contributes": {
     "commands": [
@@ -80,20 +82,18 @@
         {
           "type": "webview",
           "id": "gearlynxDebug.screenView",
-          "name": "Screen",
-          "when": "debugType == 'gearlynx'"
+          "name": "Screen"
         },
         {
           "type": "tree",
           "id": "gearlynxDebug.overlayView",
           "name": "Overlays",
-          "when": "debugType == 'gearlynx' && gearlynxDebug.hasOverlays"
+          "when": "gearlynxDebug.projectDetected && gearlynxDebug.hasOverlays"
         },
         {
           "type": "webview",
           "id": "gearlynxDebug.symbolView",
-          "name": "Symbols",
-          "when": "debugType == 'gearlynx'"
+          "name": "Symbols"
         }
       ]
     },
