@@ -4,6 +4,7 @@ import { LynxDebugSession } from './lynx_debug_session';
 import { expandTilde } from './paths';
 import { ScreenViewProvider, connectSharedStream, disconnectSharedStream } from './webviews';
 import { MemoryMapPanel } from './memory_map';
+import { getLogChannel, logInfo } from './log';
 
 let activeSession: LynxDebugSession | undefined;
 let screenViewProvider: ScreenViewProvider | undefined;
@@ -11,6 +12,9 @@ let overlayTreeProvider: OverlayTreeProvider | undefined;
 let traceOutputChannel: vscode.OutputChannel | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+    context.subscriptions.push(getLogChannel());
+    logInfo('Gearlynx Debugger extension activated.');
+
     const factory = new LynxDebugAdapterFactory();
     context.subscriptions.push(
         vscode.debug.registerDebugAdapterDescriptorFactory('gearlynx', factory)
@@ -277,6 +281,11 @@ class LynxConfigurationProvider implements vscode.DebugConfigurationProvider {
                     config.debugFile = debugPath;
                     break;
                 }
+            }
+            if (config.debugFile) {
+                logInfo(`Auto-detected debug file: ${config.debugFile}`);
+            } else {
+                logInfo(`No debug file found for ${config.rom} (tried: ${candidates.join(', ')})`);
             }
         }
 

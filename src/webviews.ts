@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { DebugMonitorClient } from './debug_monitor_client';
 import { FramebufferStreamClient, FrameData } from './framebuffer_client';
+import { logError } from './log';
 
 // Shared framebuffer stream -- one TCP connection, multiple subscribers
 let sharedStream: FramebufferStreamClient | undefined;
@@ -8,6 +9,9 @@ let sharedStream: FramebufferStreamClient | undefined;
 export function getSharedStream(): FramebufferStreamClient {
     if (!sharedStream) {
         sharedStream = new FramebufferStreamClient();
+        sharedStream.on('error', (err: Error) => {
+            logError(`Framebuffer stream error: ${err.message}`);
+        });
     }
     return sharedStream;
 }

@@ -21,6 +21,7 @@ import { DebugInfo } from './debug_info';
 import { setActiveSession } from './extension';
 import { CpuRegisters } from './types';
 import { expandTilde } from './paths';
+import { logInfo, logWarn, logError } from './log';
 
 const THREAD_ID = 1;
 
@@ -109,6 +110,10 @@ export class LynxDebugSession extends LoggingDebugSession {
         this.monitor.on('close', () => {
             this.sendEvent(new TerminatedEvent());
         });
+
+        this.monitor.on('error', (err: Error) => {
+            logError(`Debug-monitor connection error: ${err.message}`);
+        });
     }
 
     public getDebugInfo(): DebugInfo | null {
@@ -178,7 +183,10 @@ export class LynxDebugSession extends LoggingDebugSession {
         try {
             // Load debug info
             if (args.debugFile) {
+                logInfo(`Loading debug info: ${args.debugFile}`);
                 this.debugInfo = DebugInfo.load(args.debugFile, args.sourceRoots);
+            } else {
+                logInfo('No debug file configured; source-level debugging will be unavailable.');
             }
 
             setActiveSession(this);
@@ -206,13 +214,21 @@ export class LynxDebugSession extends LoggingDebugSession {
                     romBase + '.lbl',
                     args.rom + '.lbl',
                 ];
+                let symPathFound: string | undefined;
                 for (const symPath of symCandidates) {
                     if (fs.existsSync(symPath)) {
+                        symPathFound = symPath;
                         emulatorArgs.push(symPath);
                         break;
                     }
                 }
+                if (symPathFound) {
+                    logInfo(`Auto-detected symbol file for Gearlynx: ${symPathFound}`);
+                } else {
+                    logInfo(`No symbol file found for Gearlynx (tried: ${symCandidates.join(', ')})`);
+                }
 
+                logInfo(`Launching Gearlynx: ${args.gearlynxPath} ${emulatorArgs.join(' ')}`);
                 this.emulatorProcess = cp.spawn(args.gearlynxPath, emulatorArgs, {
                     stdio: ['ignore', 'ignore', args.headless ? 'pipe' : 'ignore'],
                     detached: false
@@ -230,7 +246,9 @@ export class LynxDebugSession extends LoggingDebugSession {
             }
 
             // Connect to debug monitor with retry
+            logInfo(`Connecting to debug monitor at localhost:${port}...`);
             await this.monitor.connect('localhost', port);
+            logInfo('Connected to debug monitor.');
             await this.checkProtocol();
 
             // If we didn't spawn the emulator, load the ROM via protocol
@@ -249,6 +267,7 @@ export class LynxDebugSession extends LoggingDebugSession {
 
             this.sendResponse(response);
         } catch (err) {
+            logError(`Launch failed: ${err}`);
             response.success = false;
             response.message = `Launch failed: ${err}`;
             this.sendResponse(response);
@@ -274,7 +293,9 @@ export class LynxDebugSession extends LoggingDebugSession {
             const hostname = args.hostname || 'localhost';
             const port = args.port || 6502;
 
+            logInfo(`Attaching to debug monitor at ${hostname}:${port}...`);
             await this.monitor.connect(hostname, port);
+            logInfo('Attached to debug monitor.');
             await this.checkProtocol();
             this.sendEvent(new InitializedEvent());
 
@@ -293,6 +314,7 @@ export class LynxDebugSession extends LoggingDebugSession {
 
             this.sendResponse(response);
         } catch (err) {
+            logError(`Connect failed: ${err}`);
             response.success = false;
             response.message = `Connect failed: ${err}`;
             this.sendResponse(response);
@@ -310,6 +332,7 @@ export class LynxDebugSession extends LoggingDebugSession {
                     `but Gearlynx (${info.emulatorVersion}) reports v${info.protocolVersion}. ` +
                     `Update the extension or the emulator so both match; debugging may be unreliable.`;
                 this.sendEvent(new OutputEvent(msg + '\n', 'important'));
+                logWarn(msg);
                 void vscode.window.showWarningMessage(msg);
             }
         } catch {
@@ -317,6 +340,7 @@ export class LynxDebugSession extends LoggingDebugSession {
                 `(handshake unsupported). This Gearlynx build predates protocol v${CLIENT_PROTOCOL_VERSION}; ` +
                 `debugging may be unreliable.`;
             this.sendEvent(new OutputEvent(msg + '\n', 'important'));
+            logWarn(msg);
             void vscode.window.showWarningMessage(msg);
         }
     }

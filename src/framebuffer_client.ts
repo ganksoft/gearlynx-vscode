@@ -65,7 +65,10 @@ export class FramebufferStreamClient extends EventEmitter {
             this.scheduleReconnect();
         });
 
-        this.socket.on('error', () => {});
+        this.socket.on('error', (err: Error) => {
+            if (gen !== this.generation) return;
+            this.emit('error', err);
+        });
     }
 
     private processFrames(): void {
