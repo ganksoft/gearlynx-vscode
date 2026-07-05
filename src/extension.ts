@@ -4,10 +4,12 @@ import { LynxDebugSession } from './lynx_debug_session';
 import { expandTilde } from './paths';
 import { ScreenViewProvider, connectSharedStream, disconnectSharedStream } from './webviews';
 import { MemoryMapPanel } from './memory_map';
+import { SymbolViewProvider } from './symbol_table';
 import { getLogChannel, logInfo } from './log';
 
 let activeSession: LynxDebugSession | undefined;
 let screenViewProvider: ScreenViewProvider | undefined;
+let symbolViewProvider: SymbolViewProvider | undefined;
 let overlayTreeProvider: OverlayTreeProvider | undefined;
 let traceOutputChannel: vscode.OutputChannel | undefined;
 
@@ -29,6 +31,14 @@ export function activate(context: vscode.ExtensionContext): void {
     screenViewProvider = new ScreenViewProvider(context.extensionUri);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ScreenViewProvider.viewType, screenViewProvider, {
+            webviewOptions: { retainContextWhenHidden: true }
+        })
+    );
+
+    // Symbol table view in panel -- populated from the active session's debug info.
+    symbolViewProvider = new SymbolViewProvider();
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(SymbolViewProvider.viewType, symbolViewProvider, {
             webviewOptions: { retainContextWhenHidden: true }
         })
     );
@@ -155,6 +165,11 @@ export function activate(context: vscode.ExtensionContext): void {
                     const monitor = activeSession.getMonitor();
                     const streamPort = activeSession.getStreamPort();
 
+                    const debugInfo = activeSession.getDebugInfo();
+                    if (debugInfo) {
+                        symbolViewProvider?.setDebugInfo(debugInfo);
+                    }
+
                     // Connect shared framebuffer stream
                     setTimeout(() => {
                         connectSharedStream(streamPort);
@@ -171,6 +186,7 @@ export function activate(context: vscode.ExtensionContext): void {
             if (session.type === 'gearlynx') {
                 disconnectSharedStream();
                 screenViewProvider?.clearConnection();
+                symbolViewProvider?.clearDebugInfo();
                 activeSession = undefined;
                 syncOverlayUi();
             }
