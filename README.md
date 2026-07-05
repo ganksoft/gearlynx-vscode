@@ -45,19 +45,29 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 - **Overlay detection** from cc65 banked ROM segments sharing the same address range
 - **Overlay selector** in the debug toolbar and a panel tree for switching active overlay at runtime
 - Source resolution respects the active overlay (only shows code from the selected bank)
+- The "Overlays" panel and the **Select Active Overlay** command are available without an active debug session; the debug toolbar button appears only while debugging
+
+### Symbol Table
+
+- **"Symbols" panel view** listing every function and symbol with its kind, address, segment, and source location
+- **Sort** by clicking a column header, **filter** by name or address substring, and **toggle visibility** per kind (Function, Global, Zero Page, Static)
+- **Click-to-navigate**: click a row with a known source location to jump there in the editor
+- **Set Breakpoint**: right-click a function row to add a function breakpoint
+- Works with or without an active debug session -- populated from `launch.json`'s `gearlynx` config when nothing is running, and refreshes automatically on rebuild
 
 ### Screen Viewer
 
 - **Live screen streaming** at 60fps via raw TCP binary stream
 - **Dockable panel view** that can be dragged, floated, or docked anywhere; with a scale control (Fit, plus 1x-5x integer scaling for crisp pixels)
 - **Gamepad input** through the screen viewer (keyboard events forwarded to emulator)
-- Auto-connects when a debug session starts, auto-disconnects when it ends
+- Always visible in the Lynx panel, showing "Disconnected" until a debug session connects; auto-disconnects when the session ends
 
 ### Additional Tools
 
-- **Memory Map visualization**: canvas-based address space view showing all segments with overlay column layout
+- **Memory Map visualization**: canvas-based address space view showing all segments with overlay column layout; works with or without an active debug session
 - **Trace Logger**: start/stop CPU trace logging, view output in the "Lynx Trace Log" output panel
 - **Loaded Sources**: all source files known to the debugger are listed in VSCode's built-in "Loaded Scripts" view (Run and Debug sidebar)
+- **Extension log**: a persistent "Gearlynx Debugger" output channel showing connection status and errors (connect/attach lifecycle, protocol mismatches, socket errors), independent of the Debug Console
 
 ![Lynx Memory Map: address space view with code, data, RODATA, and BSS segments, overlay banks (GAME, TITLE, BONUS) shown in parallel columns, and hardware regions (Suzy, Mikey, BIOS)](images/memory-map.png)
 
@@ -94,7 +104,7 @@ the extension at the host/port.
 ### Version compatibility
 
 The extension and the emulator negotiate a debug-monitor **protocol version** on
-connect. Gearlynx Debugger 0.1.x speaks **protocol version 1**; it requires a Gearlynx
+connect. Gearlynx Debugger 0.1.x and 0.2.x speak **protocol version 1**; it requires a Gearlynx
 build whose `handshake` reports the same version. Debug-monitor support first
 shipped in **Gearlynx 1.2.15**. On a mismatch the extension
 warns but still attempts to debug. The wire format and CLI surface are documented
@@ -103,7 +113,7 @@ the Gearlynx repository.
 
 | Gearlynx Debugger | Debug-monitor protocol | Gearlynx |
 |-----------|------------------------|----------|
-| 0.1.x     | 1                      | 1.2.15 or later (protocolVersion 1) |
+| 0.1.x, 0.2.x | 1                   | 1.2.15 or later (protocolVersion 1) |
 
 ## Quick Start
 

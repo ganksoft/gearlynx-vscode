@@ -1,13 +1,17 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
 import { DebugInfo } from './debug_info';
 import { expandTilde } from './paths';
-import { logInfo } from './log';
+import { logInfo, logWarn } from './log';
 
 interface RomConfig {
     rom: string;
     debugFile?: string;
+    sourceRoots?: string[];
+}
+
+interface ResolvedDebugFile {
+    path: string;
     sourceRoots?: string[];
 }
 
@@ -16,19 +20,28 @@ interface RomConfig {
 // not just while debugging. Watches launch.json and the resolved debug file
 // so a rebuild refreshes the panels automatically.
 export class WorkspaceDebugInfoProvider implements vscode.Disposable {
+    // Build tools and editors often touch a file (or launch.json) several
+    // times in quick succession for one logical save/rebuild; debouncing
+    // collapses that burst into a single synchronous DebugInfo.load(), which
+    // can otherwise be an expensive re-parse for a large .dbg file.
+    private static readonly DEBOUNCE_MS = 250;
+
     private debugInfo: DebugInfo | null = null;
-    private resolvedPath: string | undefined;
-    private sourceRoots: string[] | undefined;
+    // Path and sourceRoots always come from, and change with, the same
+    // resolved launch config -- one field keeps that pairing structural
+    // instead of relying on two fields always being updated together.
+    private resolved: ResolvedDebugFile | undefined;
     private fileWatcher: vscode.FileSystemWatcher | undefined;
     private readonly launchWatcher: vscode.FileSystemWatcher;
     private readonly emitter = new vscode.EventEmitter<void>();
     public readonly onDidChange = this.emitter.event;
+    private debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor() {
         this.launchWatcher = vscode.workspace.createFileSystemWatcher('**/.vscode/launch.json');
-        this.launchWatcher.onDidChange(() => this.refreshFromLaunchConfig());
-        this.launchWatcher.onDidCreate(() => this.refreshFromLaunchConfig());
-        this.launchWatcher.onDidDelete(() => this.refreshFromLaunchConfig());
+        this.launchWatcher.onDidChange(() => this.scheduleRefresh(() => this.refreshFromLaunchConfig()));
+        this.launchWatcher.onDidCreate(() => this.scheduleRefresh(() => this.refreshFromLaunchConfig()));
+        this.launchWatcher.onDidDelete(() => this.scheduleRefresh(() => this.refreshFromLaunchConfig()));
         this.refreshFromLaunchConfig();
     }
 
@@ -37,39 +50,44 @@ export class WorkspaceDebugInfoProvider implements vscode.Disposable {
     }
 
     dispose(): void {
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.fileWatcher?.dispose();
         this.launchWatcher.dispose();
         this.emitter.dispose();
     }
 
+    private scheduleRefresh(fn: () => void): void {
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(() => {
+            this.debounceTimer = undefined;
+            fn();
+        }, WorkspaceDebugInfoProvider.DEBOUNCE_MS);
+    }
+
     private refreshFromLaunchConfig(): void {
         const romConfig = this.findGearlynxConfig();
-        let newPath: string | undefined;
-
         if (romConfig) {
-            if (romConfig.debugFile && fs.existsSync(romConfig.debugFile)) {
-                newPath = romConfig.debugFile;
-            } else {
-                newPath = DebugInfo.findCandidatePath(romConfig.rom).found;
-            }
+            this.warnIfUnresolvedVariable('rom', romConfig.rom);
+            if (romConfig.debugFile) this.warnIfUnresolvedVariable('debugFile', romConfig.debugFile);
         }
 
-        if (newPath !== this.resolvedPath) {
+        const newPath = romConfig ? DebugInfo.resolveDebugFile(romConfig.rom, romConfig.debugFile).path : undefined;
+
+        if (newPath !== this.resolved?.path) {
             this.watchDebugFile(newPath);
-            this.resolvedPath = newPath;
         }
-        this.sourceRoots = romConfig?.sourceRoots;
+        this.resolved = newPath ? { path: newPath, sourceRoots: romConfig?.sourceRoots } : undefined;
 
         this.reloadDebugInfo();
     }
 
     private reloadDebugInfo(): void {
-        this.debugInfo = this.resolvedPath ? DebugInfo.load(this.resolvedPath, this.sourceRoots) : null;
+        this.debugInfo = this.resolved ? DebugInfo.load(this.resolved.path, this.resolved.sourceRoots) : null;
 
-        if (this.resolvedPath && !this.debugInfo) {
-            logInfo(`Failed to parse workspace debug file: ${this.resolvedPath}`);
+        if (this.resolved && !this.debugInfo) {
+            logInfo(`Failed to parse workspace debug file: ${this.resolved.path}`);
         } else if (this.debugInfo) {
-            logInfo(`Workspace debug info loaded: ${this.resolvedPath}`);
+            logInfo(`Workspace debug info loaded: ${this.resolved!.path}`);
         }
 
         this.emitter.fire();
@@ -82,11 +100,23 @@ export class WorkspaceDebugInfoProvider implements vscode.Disposable {
 
         const pattern = new vscode.RelativePattern(path.dirname(newPath), path.basename(newPath));
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-        this.fileWatcher.onDidChange(() => this.reloadDebugInfo());
-        this.fileWatcher.onDidCreate(() => this.reloadDebugInfo());
-        this.fileWatcher.onDidDelete(() => this.reloadDebugInfo());
+        this.fileWatcher.onDidChange(() => this.scheduleRefresh(() => this.reloadDebugInfo()));
+        this.fileWatcher.onDidCreate(() => this.scheduleRefresh(() => this.reloadDebugInfo()));
+        this.fileWatcher.onDidDelete(() => this.scheduleRefresh(() => this.reloadDebugInfo()));
     }
 
+    // Deliberately independent of LynxConfigurationProvider (extension.ts),
+    // which resolves the *same* kind of config during a real debug session:
+    // that provider receives its config already fully substituted by VS Code
+    // (${env:...}, multi-root ${workspaceFolder:name}, etc. all resolved
+    // before it sees it). There is no public VS Code API to get that same
+    // resolution outside of actually starting a debug session, so this method
+    // reads raw, unsubstituted launch.json values instead and only handles
+    // ${workspaceFolder} itself (see substituteWorkspaceFolder below). The two
+    // are kept behaviorally aligned only where that's actually possible --
+    // e.g. both go through DebugInfo.resolveDebugFile for the debugFile
+    // decision.
+    //
     // Only the first "type": "gearlynx" configuration across workspace folders
     // is used; multiple gearlynx configs in one workspace aren't disambiguated.
     private findGearlynxConfig(): RomConfig | undefined {
@@ -114,7 +144,24 @@ export class WorkspaceDebugInfoProvider implements vscode.Disposable {
         return undefined;
     }
 
+    // Only ${workspaceFolder} is resolved here, unlike a real debug session
+    // (which goes through VS Code's full DebugConfigurationProvider variable
+    // resolution -- ${env:...}, multi-root ${workspaceFolder:name}, etc.). A
+    // launch.json relying on those will silently fail to resolve in this
+    // no-session path; warnIfUnresolvedVariable surfaces that instead of
+    // failing silently.
     private substituteWorkspaceFolder(value: string, folder: vscode.WorkspaceFolder): string {
         return value.replace(/\$\{workspaceFolder\}/g, folder.uri.fsPath);
+    }
+
+    private warnIfUnresolvedVariable(field: string, value: string): void {
+        const match = value.match(/\$\{[^}]+\}/);
+        if (match) {
+            logWarn(
+                `Workspace symbol scan: launch.json "${field}" still contains ${match[0]} after substitution ` +
+                `(only \${workspaceFolder} is supported outside an active debug session). Panels may not populate ` +
+                `until a debug session is started.`
+            );
+        }
     }
 }

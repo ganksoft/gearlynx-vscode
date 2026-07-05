@@ -101,3 +101,7 @@ in `docs/PUBLISHING.md`; `scripts/setup-marketplace-oidc.ps1` automates it.
   publisher (`Ganksoft`) without a deliberate migration.
 - Keep `package.json` contributed `commands`/`configuration` in sync with the
   code that implements them.
+- Any new view added to the `gearlynxDebugPanel` container needs a matching
+  `onView:<viewId>` entry in `activationEvents` -- there is no "activate on
+  any view in this container" event, so a view without one silently never
+  triggers activation the first time a user opens it.

@@ -5,6 +5,47 @@ All notable changes to the Gearlynx Debugger extension are documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-05
+
+### Added
+
+- **Symbol Table panel**: a new "Symbols" view in the Lynx panel listing every
+  function and symbol with its kind, address, segment, and source location.
+  Sort by clicking a column header, filter by name or address, toggle
+  visibility per kind (Function/Global/Zero Page/Static), click a row to jump
+  to its source location, and right-click a function to set a breakpoint.
+- **"Gearlynx Debugger" output channel**: a persistent log of connection
+  status and errors (connect/attach lifecycle, protocol mismatches, socket
+  errors) separate from the Debug Console, so issues are visible even before
+  or after a debug session runs.
+- The **Screen**, **Overlays**, and **Symbols** panels, and the **Show Memory
+  Map** / **Select Active Overlay** commands, now work without an active debug
+  session: they resolve debug info directly from the `gearlynx` configuration
+  in `launch.json` and refresh automatically when the ROM is rebuilt or
+  `launch.json` changes.
+
+### Changed
+
+- The Screen Viewer panel is now always visible in the Lynx panel (previously
+  it only appeared once a debug session started); it shows "Disconnected"
+  until a session connects.
+- The extension now activates when the Screen or Symbols view is opened, in
+  addition to on debug session start, so the panel is available before
+  pressing F5.
+
+### Fixed
+
+- A dropped connection error on the framebuffer stream could crash the
+  extension host; socket errors are now surfaced (and logged) instead of
+  silently discarded.
+- The Symbol Table no longer lists each function twice. cc65 debug info
+  records a function both as a C-level symbol and as its own
+  underscore-prefixed assembly label at the same address; only the function
+  row is shown now.
+- `findSourceForAddress` (used by source-line stepping, the call stack, and
+  the Symbol Table) is now a binary search instead of a linear scan, which
+  matters on projects with a large debug file.
+
 ## [0.1.1] - 2026-06-26
 
 ### Fixed

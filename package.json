@@ -2,7 +2,7 @@
   "name": "gearlynx-debugger",
   "displayName": "Gearlynx Debugger",
   "description": "Source-level debugger for Atari Lynx games using the Gearlynx emulator",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "ganksoft",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "images/icon.png",
@@ -101,7 +101,7 @@
       "commandPalette": [
         {
           "command": "gearlynxDebug.selectOverlay",
-          "when": "debugType == 'gearlynx' && gearlynxDebug.hasOverlays"
+          "when": "gearlynxDebug.projectDetected && gearlynxDebug.hasOverlays"
         }
       ],
       "debug/toolBar": [

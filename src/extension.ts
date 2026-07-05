@@ -15,11 +15,17 @@ let overlayTreeProvider: OverlayTreeProvider | undefined;
 let traceOutputChannel: vscode.OutputChannel | undefined;
 let workspaceDebugInfoProvider: WorkspaceDebugInfoProvider | undefined;
 
-// Session data takes precedence; falls back to the workspace-scanned debug
-// info (from launch.json, no session required) so panels work while writing
+// A live session takes precedence, even if it has no debug file loaded --
+// falling through to the workspace scan in that case would show an unrelated
+// launch.json config's symbols as if they belonged to the active session.
+// The workspace-scanned debug info (from launch.json, no session required)
+// only applies when there is no session at all, so panels work while writing
 // code, not just while debugging.
 function getEffectiveDebugInfo(): DebugInfo | null {
-    return activeSession?.getDebugInfo() ?? workspaceDebugInfoProvider?.getDebugInfo() ?? null;
+    if (activeSession) {
+        return activeSession.getDebugInfo();
+    }
+    return workspaceDebugInfoProvider?.getDebugInfo() ?? null;
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -36,7 +42,11 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.debug.registerDebugConfigurationProvider('gearlynx', provider)
     );
 
-    // Register persistent screen view in panel
+    // Register persistent screen view in panel. Views in gearlynxDebugPanel
+    // that should work standalone (no debug session) each need their own
+    // "onView:<viewId>" entry in package.json's activationEvents -- there is
+    // no "any view in this container" wildcard, so a new view without one
+    // silently never activates the extension on first open.
     screenViewProvider = new ScreenViewProvider(context.extensionUri);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ScreenViewProvider.viewType, screenViewProvider, {
@@ -296,12 +306,12 @@ class LynxConfigurationProvider implements vscode.DebugConfigurationProvider {
             config.rom = expandTilde(config.rom);
         }
         if (config.rom && !config.debugFile) {
-            const { found, candidates } = DebugInfo.findCandidatePath(config.rom);
-            config.debugFile = found;
-            if (found) {
-                logInfo(`Auto-detected debug file: ${found}`);
+            const { path, candidates } = DebugInfo.resolveDebugFile(config.rom, undefined);
+            config.debugFile = path;
+            if (path) {
+                logInfo(`Auto-detected debug file: ${path}`);
             } else {
-                logInfo(`No debug file found for ${config.rom} (tried: ${candidates.join(', ')})`);
+                logInfo(`No debug file found for ${config.rom} (tried: ${candidates!.join(', ')})`);
             }
         }
 

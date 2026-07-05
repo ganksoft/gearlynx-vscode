@@ -2,8 +2,14 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { DebugInfo } from './debug_info';
 
+// Single source of truth for the row kinds: used both to type SymbolRow.kind
+// (so buildRows can only produce one of these) and to render the filter
+// checkboxes, so the two can't drift out of sync.
+const ALL_KINDS = ['Function', 'Global', 'Zero Page', 'Static'] as const;
+type SymbolKind = typeof ALL_KINDS[number];
+
 interface SymbolRow {
-    kind: string;
+    kind: SymbolKind;
     name: string;
     address: number;
     segment: string;
@@ -18,6 +24,7 @@ interface SymbolRow {
 // frames -- to get a location that's guaranteed to exist on disk (or none).
 function buildRows(debugInfo: DebugInfo): SymbolRow[] {
     const rows: SymbolRow[] = [];
+    const functionAddresses = new Set<number>();
 
     for (const fn of debugInfo.getFunctions()) {
         const loc = debugInfo.findSourceForAddress(fn.address);
@@ -29,9 +36,18 @@ function buildRows(debugInfo: DebugInfo): SymbolRow[] {
             source: loc?.source || '',
             line: loc?.line || 0,
         });
+        functionAddresses.add(fn.address);
     }
 
     for (const sym of debugInfo.getSymbols()) {
+        // cc65 .dbg files record a function twice: a csym (C-level, no
+        // underscore -- becomes a Function row above) and its own assembly
+        // entry label (underscore-prefixed, "Static") at the same address.
+        // Skip the label here so the function isn't listed twice; it stays in
+        // DebugInfo.getSymbols() itself since findSymbol() (function
+        // breakpoints, hover/watch evaluation) still needs to resolve it.
+        if (functionAddresses.has(sym.address)) continue;
+
         const loc = debugInfo.findSourceForAddress(sym.address);
         rows.push({
             kind: sym.isZeroPage ? 'Zero Page' : (sym.isGlobal ? 'Global' : 'Static'),
@@ -45,8 +61,6 @@ function buildRows(debugInfo: DebugInfo): SymbolRow[] {
 
     return rows;
 }
-
-const ALL_KINDS = ['Function', 'Global', 'Zero Page', 'Static'];
 
 export class SymbolViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'gearlynxDebug.symbolView';

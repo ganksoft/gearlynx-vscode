@@ -10,12 +10,17 @@ export class DebugInfo {
     private activeOverlaySegmentId: number | null = null;
     private activeOverlayName: string | null = null;
     private sourceResolveCache = new Map<string, string | null>();
-    // Memoize address->location lookups. findSourceForAddress is an O(n) scan of
-    // the whole address map and is called once per single-instruction step during
-    // source-line stepping, so without this it dominates when stepping through
-    // unmapped code (null results are cached too). Invalidated on overlay change,
-    // the only thing that alters which mappings resolve.
+    // Memoize address->location lookups. findSourceForAddress is called once per
+    // single-instruction step during source-line stepping and once per row when
+    // building the Symbol Table panel, so without this it dominates when
+    // stepping through unmapped code or rendering a large symbol list (null
+    // results are cached too). Invalidated on overlay change, the only thing
+    // that alters which mappings resolve.
     private addressLocationCache = new Map<number, SourceLocation | null>();
+    // Lazily-built ascending address list for binary search in
+    // findSourceForAddress. Never invalidated: addressToSource itself is fixed
+    // once parsed, only which mappings resolve changes with the active overlay.
+    private sortedAddresses: number[] | undefined;
 
     private constructor(data: DebugInfoData, sourceRoots: string[]) {
         this.data = data;
@@ -59,37 +64,80 @@ export class DebugInfo {
         return { found: candidates.find(c => fs.existsSync(c)), candidates };
     }
 
+    // Decides which debug file to use for a rom: an explicit debugFile is
+    // trusted as-is (even if missing on disk -- load() then just returns null,
+    // the same graceful "no debug info" outcome as a session with none
+    // configured); auto-detection only kicks in when none was given. Shared by
+    // both a real debug session launch (extension.ts) and the no-session
+    // workspace scan (workspace_debug_info.ts) so they agree on the outcome.
+    static resolveDebugFile(rom: string, explicitDebugFile: string | undefined): { path?: string; candidates?: string[] } {
+        if (explicitDebugFile) {
+            return { path: explicitDebugFile };
+        }
+        const { found, candidates } = DebugInfo.findCandidatePath(rom);
+        return { path: found, candidates };
+    }
+
     findSourceForAddress(address: number): SourceLocation | null {
         const cached = this.addressLocationCache.get(address);
         if (cached !== undefined) {
             return cached;
         }
 
-        // Find the nearest mapping (largest start address) whose range covers the
-        // target, whose segment is active, and whose source file actually exists
-        // on disk. Skipping unresolvable mappings is essential: cc65 emits runtime
-        // assembly mappings (e.g. bootldr.s, not on the user's disk) that share
-        // addresses with C statements. If such a mapping shadowed the enclosing C
-        // line, the address would report as unmapped during stepping. Each address
-        // holds one candidate per segment (overlays share addresses); the active-
-        // segment filter selects the candidate for the currently mapped overlay.
-        let best: SourceLocation | null = null;
-        let bestAddr = -1;
-        for (const [addr, candidates] of this.data.addressToSource) {
-            if (addr > address || addr <= bestAddr) continue;
+        const best = this.computeSourceForAddress(address);
+        this.addressLocationCache.set(address, best);
+        return best;
+    }
+
+    // Find the nearest mapping (largest start address <= target) whose range
+    // covers the target, whose segment is active, and whose source file
+    // actually exists on disk. Skipping unresolvable mappings is essential:
+    // cc65 emits runtime assembly mappings (e.g. bootldr.s, not on the user's
+    // disk) that share addresses with C statements. If such a mapping shadowed
+    // the enclosing C line, the address would report as unmapped during
+    // stepping. Each address holds one candidate per segment (overlays share
+    // addresses); the active-segment filter selects the candidate for the
+    // currently mapped overlay.
+    //
+    // Binary search finds the starting point (largest address <= target), then
+    // walks backward through progressively smaller addresses. Addresses are
+    // visited in decreasing order this way, so the first candidate that
+    // resolves is necessarily the nearest valid mapping -- same result as a
+    // full scan, without scanning addresses that can't be nearer.
+    private computeSourceForAddress(address: number): SourceLocation | null {
+        const sorted = this.getSortedAddresses();
+
+        let lo = 0, hi = sorted.length - 1, startIdx = -1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (sorted[mid] <= address) {
+                startIdx = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+
+        for (let i = startIdx; i >= 0; i--) {
+            const candidates = this.data.addressToSource.get(sorted[i])!;
             for (const candidate of candidates) {
                 if (address <= candidate.addressEnd && this.isSegmentActive(candidate.segmentId)) {
                     const resolved = this.resolveLocation(candidate);
                     if (resolved) {
-                        best = resolved;
-                        bestAddr = addr;
-                        break;
+                        return resolved;
                     }
                 }
             }
         }
-        this.addressLocationCache.set(address, best);
-        return best;
+
+        return null;
+    }
+
+    private getSortedAddresses(): number[] {
+        if (!this.sortedAddresses) {
+            this.sortedAddresses = Array.from(this.data.addressToSource.keys()).sort((a, b) => a - b);
+        }
+        return this.sortedAddresses;
     }
 
     findNearestCodeLine(sourcePath: string, line: number): SourceLocation | null {
