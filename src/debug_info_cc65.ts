@@ -376,12 +376,14 @@ export class Cc65DebugInfo {
                     // an overlapping overlay's line record is not used.
                     const candidates = addressToSource.get(address);
                     const loc = candidates?.find(c => c.segmentId === sym.seg) ?? candidates?.[0];
+                    const seg = sym.seg !== undefined ? segMap.get(sym.seg) : undefined;
                     functions.push({
                         name: csym.name,
                         address,
                         addressEnd: endAddress,
                         source: loc?.source || '',
                         line: loc?.line || 0,
+                        segment: seg?.name || '',
                     });
                     scopeFunctionMap.set(csym.scope, { address, endAddress });
                 }

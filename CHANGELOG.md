@@ -5,6 +5,19 @@ All notable changes to the Gearlynx Debugger extension are documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-05
+
+### Changed
+
+- The Symbol Table panel now keeps the filter input, kind toggles, and count
+  fixed at the top; only the row list scrolls underneath.
+
+### Fixed
+
+- The Symbol Table's Function rows now show their segment. `DebugFunction`
+  never carried a segment name, so it was always blank for functions even
+  though the cc65 `.dbg` parser already resolved it.
+
 ## [0.2.0] - 2026-07-05
 
 ### Added

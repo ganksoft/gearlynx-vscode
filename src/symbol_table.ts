@@ -32,7 +32,7 @@ function buildRows(debugInfo: DebugInfo): SymbolRow[] {
             kind: 'Function',
             name: fn.name,
             address: fn.address,
-            segment: '',
+            segment: fn.segment,
             source: loc?.source || '',
             line: loc?.line || 0,
         });
@@ -123,12 +123,17 @@ export class SymbolViewProvider implements vscode.WebviewViewProvider {
 <html>
 <head>
 <style>
+    html, body {
+        height: 100%; overflow: hidden;
+    }
     body {
         font-family: var(--vscode-font-family);
         color: var(--vscode-foreground);
         background: var(--vscode-editor-background);
         padding: 8px; margin: 0; font-size: 12px;
+        display: flex; flex-direction: column; box-sizing: border-box;
     }
+    #header { flex: 0 0 auto; }
     #filter {
         width: 100%; box-sizing: border-box; margin-bottom: 6px; padding: 3px 6px;
         background: var(--vscode-input-background); color: var(--vscode-input-foreground);
@@ -136,6 +141,7 @@ export class SymbolViewProvider implements vscode.WebviewViewProvider {
     }
     #kinds { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-bottom: 6px; }
     #kinds label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    #scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
     table { border-collapse: collapse; width: 100%; }
     th, td { text-align: left; padding: 2px 8px 2px 0; white-space: nowrap; }
     th {
@@ -159,22 +165,26 @@ export class SymbolViewProvider implements vscode.WebviewViewProvider {
 </style>
 </head>
 <body>
-    <input id="filter" type="text" placeholder="Filter by name or address..." />
-    <div id="kinds"></div>
-    <div id="count"></div>
-    <table>
-        <thead>
-            <tr>
-                <th data-key="kind">Kind</th>
-                <th data-key="name">Name</th>
-                <th data-key="address">Address</th>
-                <th data-key="segment">Segment</th>
-                <th data-key="sourceLabel">Location</th>
-            </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-    </table>
-    <div id="empty" style="display:none">No debug info loaded.</div>
+    <div id="header">
+        <input id="filter" type="text" placeholder="Filter by name or address..." />
+        <div id="kinds"></div>
+        <div id="count"></div>
+    </div>
+    <div id="scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th data-key="kind">Kind</th>
+                    <th data-key="name">Name</th>
+                    <th data-key="address">Address</th>
+                    <th data-key="segment">Segment</th>
+                    <th data-key="sourceLabel">Location</th>
+                </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+        </table>
+        <div id="empty" style="display:none">No debug info loaded.</div>
+    </div>
     <div id="ctxmenu"><div class="item" id="ctxSetBreakpoint">Set Breakpoint</div></div>
     <script>
     (function() {

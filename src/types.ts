@@ -80,6 +80,7 @@ export interface DebugFunction {
     addressEnd: number;
     source: string;
     line: number;
+    segment: string;
 }
 
 export interface LocalVariable {
