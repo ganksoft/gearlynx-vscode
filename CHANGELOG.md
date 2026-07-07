@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a segment is code when it hosts a function symbol, independent of its name --
   because cc65 debug info only distinguishes read-only from read-write, not code
   from rodata. Data-only overlays have no function symbols and are omitted.
+- On debug start the Lynx screen is revealed and focused so keyboard input is
+  routed to the emulator without clicking the canvas. The screen no longer grabs
+  focus on window/panel load -- only on Run and on click.
 
 ## [0.2.1] - 2026-07-05
 

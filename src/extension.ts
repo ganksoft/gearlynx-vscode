@@ -181,6 +181,10 @@ export function activate(context: vscode.ExtensionContext): void {
             if (session.type === 'gearlynx') {
                 syncDebugInfoUi();
 
+                // Reveal and focus the Lynx screen so keyboard input is routed
+                // to the emulator on Run without the user clicking the canvas.
+                void vscode.commands.executeCommand('gearlynxDebug.screenView.focus');
+
                 if (activeSession) {
                     const monitor = activeSession.getMonitor();
                     const streamPort = activeSession.getStreamPort();
@@ -190,6 +194,7 @@ export function activate(context: vscode.ExtensionContext): void {
                         connectSharedStream(streamPort);
                         if (screenViewProvider) {
                             screenViewProvider.setConnection(monitor);
+                            screenViewProvider.focusScreen();
                         }
                     }, 1000);
                 }

@@ -70,6 +70,14 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    // Give the screen canvas DOM focus so keyboard input is routed to the
+    // emulator. Revealing the view (VS Code's built-in <viewId>.focus command)
+    // focuses the view host; this re-focuses the canvas inside it, which matters
+    // when the view was already resolved from a previous run.
+    public focusScreen(): void {
+        this.view?.webview.postMessage({ command: 'focus' });
+    }
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
@@ -180,11 +188,12 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
                 if (now - lt >= 1000) { fps = fc; fc = 0; lt = now; }
                 info.textContent = m.width + 'x' + m.height + ' | ' + fps + ' fps';
             }
+            if (m.command === 'focus') { canvas.focus(); }
         });
         applyScale();
         document.addEventListener('keydown', (e) => { if (!e.repeat) { e.preventDefault(); vscode.postMessage({ command: 'keydown', key: e.key }); } });
         document.addEventListener('keyup', (e) => { e.preventDefault(); vscode.postMessage({ command: 'keyup', key: e.key }); });
-        canvas.tabIndex = 0; canvas.focus();
+        canvas.tabIndex = 0;
         canvas.addEventListener('click', () => canvas.focus());
     </script>
 </body></html>`;
