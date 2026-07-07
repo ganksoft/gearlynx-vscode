@@ -112,7 +112,9 @@ export class LynxDebugSession extends LoggingDebugSession {
         });
 
         this.monitor.on('error', (err: Error) => {
-            logError(`Debug-monitor connection error: ${err.message}`);
+            const msg = `Gearlynx debug connection error: ${err.message}`;
+            logError(msg);
+            void vscode.window.showErrorMessage(msg);
         });
     }
 

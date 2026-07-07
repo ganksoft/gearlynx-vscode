@@ -53,6 +53,7 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
     private keymap: Map<string, string> = new Map();
     private frameHandler: ((frame: FrameData) => void) | null = null;
     private statusHandler: ((connected: boolean) => void) | null = null;
+    private errorHandler: ((err: Error) => void) | null = null;
 
     constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -67,6 +68,7 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
         this.monitor = null;
         if (this.view) {
             this.view.webview.postMessage({ command: 'status', connected: false });
+            this.view.webview.postMessage({ command: 'clear' });
         }
     }
 
@@ -115,8 +117,12 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
         this.statusHandler = (connected: boolean) => {
             this.view?.webview.postMessage({ command: 'status', connected });
         };
+        this.errorHandler = (err: Error) => {
+            this.view?.webview.postMessage({ command: 'error', message: err.message });
+        };
         stream.on('frame', this.frameHandler);
         stream.on('status', this.statusHandler);
+        stream.on('error', this.errorHandler);
         this.view.webview.postMessage({ command: 'status', connected: stream.isConnected() });
     }
 
@@ -124,9 +130,11 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
         if (sharedStream) {
             if (this.frameHandler) sharedStream.off('frame', this.frameHandler);
             if (this.statusHandler) sharedStream.off('status', this.statusHandler);
+            if (this.errorHandler) sharedStream.off('error', this.errorHandler);
         }
         this.frameHandler = null;
         this.statusHandler = null;
+        this.errorHandler = null;
     }
 
     private getHtml(): string {
@@ -160,6 +168,7 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
         const info = document.getElementById('info');
         const statusEl = document.getElementById('status');
         let fc = 0, lt = Date.now(), fps = 0;
+        let lastError = null;
         // 'fit' scales the canvas to the panel width (integer-agnostic); a number
         // applies pixel-perfect integer scaling, which matters for crisp pixels.
         function applyScale() {
@@ -178,8 +187,14 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
         window.addEventListener('message', (e) => {
             const m = e.data;
             if (m.command === 'status') {
-                statusEl.textContent = m.connected ? 'Connected' : 'Disconnected';
+                if (m.connected) lastError = null;
+                statusEl.textContent = m.connected ? 'Connected' : (lastError ? 'Disconnected: ' + lastError : 'Disconnected');
                 statusEl.className = 'info status ' + (m.connected ? 'connected' : 'disconnected');
+            }
+            if (m.command === 'error') {
+                lastError = m.message;
+                statusEl.textContent = 'Disconnected: ' + lastError;
+                statusEl.className = 'info status disconnected';
             }
             if (m.command === 'frame') {
                 if (canvas.width !== m.width || canvas.height !== m.height) { canvas.width = m.width; canvas.height = m.height; applyScale(); }
@@ -189,6 +204,18 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
                 info.textContent = m.width + 'x' + m.height + ' | ' + fps + ' fps';
             }
             if (m.command === 'focus') { canvas.focus(); }
+            if (m.command === 'clear') {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                info.textContent = 'Waiting...';
+                fc = 0; fps = 0; lt = Date.now();
+                // A session end always tears down the stream right after; any
+                // error from that teardown (e.g. ECONNRESET) is expected, not
+                // a real fault, so drop it rather than leaving it displayed.
+                lastError = null;
+                statusEl.textContent = 'Disconnected';
+                statusEl.className = 'info status disconnected';
+            }
         });
         applyScale();
         document.addEventListener('keydown', (e) => { if (!e.repeat) { e.preventDefault(); vscode.postMessage({ command: 'keydown', key: e.key }); } });
