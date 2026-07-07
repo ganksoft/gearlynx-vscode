@@ -9,14 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The overlay selector (Overlays panel and debug-toolbar picker) now lists only
-  code overlays. Overlay segments are classified as code or data structurally --
-  a segment is code when it hosts a function symbol, independent of its name --
-  because cc65 debug info only distinguishes read-only from read-write, not code
-  from rodata. Data-only overlays have no function symbols and are omitted.
-- On debug start the Lynx screen is revealed and focused so keyboard input is
-  routed to the emulator without clicking the canvas. The screen no longer grabs
-  focus on window/panel load -- only on Run and on click.
+- The overlay selector now lists only code overlays (segments classified as code
+  when they host a function symbol; data-only overlays are omitted).
+- On debug start the Lynx screen is revealed and focused so keyboard input reaches
+  the emulator
 
 ## [0.2.1] - 2026-07-05
 
