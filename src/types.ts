@@ -103,14 +103,23 @@ export interface DebugInfoData {
     segments: SegmentInfo[];
 }
 
+// Structural classification derived from debug info, independent of segment
+// name: a segment is 'code' when it hosts at least one function symbol,
+// otherwise 'data' (rodata/bss/data all collapse to 'data' -- cc65 debug info
+// only distinguishes read-only vs read-write, not code vs rodata).
+export type SegmentKind = 'code' | 'data';
+
 export interface SegmentInfo {
     name: string;
     start: number;
     size: number;
     type: string;
+    kind: SegmentKind;
 }
 
 export interface OverlayGroup {
     segmentIds: number[];
     segmentNames: string[];
+    // Parallel to segmentNames: the classified kind of each overlay segment.
+    segmentKinds: SegmentKind[];
 }

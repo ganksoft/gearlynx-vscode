@@ -104,12 +104,13 @@ export function activate(context: vscode.ExtensionContext): void {
             }];
 
             for (const group of groups) {
-                for (const name of group.segmentNames) {
+                group.segmentNames.forEach((name, i) => {
+                    if (group.segmentKinds[i] !== 'code') return;
                     items.push({
                         label: name,
                         description: name === currentName ? '(active)' : '',
                     });
-                }
+                });
             }
 
             const picked = await vscode.window.showQuickPick(items, {
@@ -349,10 +350,15 @@ class OverlayTreeProvider implements vscode.TreeDataProvider<OverlayChoice> {
         const debugInfo = getEffectiveDebugInfo();
         if (!debugInfo || !debugInfo.hasOverlays()) return [];
         const choices: OverlayChoice[] = [{ label: 'None (no overlay)', value: null }];
+        // Only code overlays are selectable: the selector marks which overlay's
+        // code is resident in RAM. Data-kind overlays have no function symbols
+        // and are not something the user steps through, so they are omitted.
         for (const group of debugInfo.getOverlayGroups()) {
-            for (const name of group.segmentNames) {
-                choices.push({ label: name, value: name });
-            }
+            group.segmentNames.forEach((name, i) => {
+                if (group.segmentKinds[i] === 'code') {
+                    choices.push({ label: name, value: name });
+                }
+            });
         }
         return choices;
     }

@@ -197,6 +197,10 @@ export class Cc65DebugInfo {
                 overlayGroups.push({
                     segmentIds: segIds,
                     segmentNames: names,
+                    // Filled in after functions are processed (see below); a
+                    // segment cannot be classified as code until we know which
+                    // segments host function symbols.
+                    segmentKinds: [],
                 });
             }
         }
@@ -357,6 +361,11 @@ export class Cc65DebugInfo {
         // Process csyms to find functions and local variables
         // First pass: identify function scopes
         const scopeFunctionMap = new Map<number, { address: number; endAddress: number }>();
+        // Segments that host at least one function symbol are code segments.
+        // This is the only name-independent signal cc65 debug info gives us for
+        // code vs rodata (both are type=ro), so overlay/segment kind is derived
+        // from it.
+        const codeSegmentIds = new Set<number>();
 
         for (const csym of data.csyms) {
             if (csym.sym !== undefined && csym.scope !== undefined) {
@@ -386,6 +395,7 @@ export class Cc65DebugInfo {
                         segment: seg?.name || '',
                     });
                     scopeFunctionMap.set(csym.scope, { address, endAddress });
+                    if (sym.seg !== undefined) codeSegmentIds.add(sym.seg);
                 }
             }
         }
@@ -438,9 +448,20 @@ export class Cc65DebugInfo {
             }
         }
 
+        // Classify each overlay segment now that code segments are known.
+        for (const group of overlayGroups) {
+            group.segmentKinds = group.segmentIds.map(id => codeSegmentIds.has(id) ? 'code' : 'data');
+        }
+
         const segments: SegmentInfo[] = data.segs
             .filter(s => s.size > 0)
-            .map(s => ({ name: s.name, start: s.start, size: s.size, type: s.type || 'rw' }));
+            .map(s => ({
+                name: s.name,
+                start: s.start,
+                size: s.size,
+                type: s.type || 'rw',
+                kind: codeSegmentIds.has(s.id) ? 'code' : 'data',
+            }));
 
         return { addressToSource, sourceToAddresses, symbols, functions, locals, zeropageStackPointerAddr, overlayGroups, segments };
     }
