@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import { DebugSymbol, DebugInfoData } from './types';
+import { logWarn } from './log';
 
 export class SymDebugInfo {
     static parse(filePath: string): DebugInfoData | null {
@@ -12,6 +13,7 @@ export class SymDebugInfo {
 
         const symbols: DebugSymbol[] = [];
         const lines = src.split('\n');
+        let unmatchedLines = 0;
 
         for (const line of lines) {
             const trimmed = line.trim();
@@ -61,7 +63,13 @@ export class SymDebugInfo {
                     isCVariable: false,
                     segment: '',
                 });
+            } else {
+                unmatchedLines++;
             }
+        }
+
+        if (unmatchedLines > 0) {
+            logWarn(`sym file: ${unmatchedLines} line(s) did not match a known symbol format and were skipped.`);
         }
 
         return {

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Debug-monitor disconnects now show a toast, not just a log entry.
 - Screen Viewer shows stream errors and blacks out on session end instead of freezing on the last frame.
+- Debug-info parsing now logs symbol/function counts and warns on parse anomalies or an unreadable/empty debug file.
 
 ## [0.2.2] - 2026-07-06
 

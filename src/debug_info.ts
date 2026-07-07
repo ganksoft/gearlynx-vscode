@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { SourceLocation, DebugSymbol, DebugFunction, LocalVariable, OverlayGroup, SegmentInfo, DebugInfoData } from './types';
 import { Cc65DebugInfo } from './debug_info_cc65';
 import { SymDebugInfo } from './debug_info_sym';
+import { logInfo, logWarn } from './log';
 
 export class DebugInfo {
     private data: DebugInfoData;
@@ -44,7 +45,20 @@ export class DebugInfo {
             data = SymDebugInfo.parse(filePath);
         }
 
-        if (!data) return null;
+        if (!data) {
+            logWarn(`Found a ${ext} debug file but could not read it: ${filePath}`);
+            return null;
+        }
+
+        if (data.symbols.length === 0 && data.functions.length === 0) {
+            logWarn(`Parsed ${ext} debug info but found no symbols or functions: ${filePath}. ` +
+                'Check that the build produced debug output for this ROM.');
+        } else {
+            logInfo(`Parsed ${ext} debug info: ${data.symbols.length} symbols, ${data.functions.length} functions, ` +
+                `${data.locals.length} locals, ${data.segments.length} segments, ${data.overlayGroups.length} overlay group(s), ` +
+                `${data.addressToSource.size} mapped address(es).`);
+        }
+
         return new DebugInfo(data, roots);
     }
 

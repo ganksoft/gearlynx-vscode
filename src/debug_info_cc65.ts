@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import { SourceLocation, DebugSymbol, DebugFunction, LocalVariable, OverlayGroup, SegmentInfo, DebugInfoData } from './types';
+import { logWarn } from './log';
 
 interface DbgFile {
     id: number;
@@ -232,9 +233,11 @@ export class Cc65DebugInfo {
         }
 
         // Process line entries -> build address<->source maps
+        let linesMissingFile = 0;
+        let linesMissingSpan = 0;
         for (const line of data.lines) {
             const file = fileMap.get(line.file);
-            if (!file) continue;
+            if (!file) { linesMissingFile++; continue; }
 
             // Skip cc65-generated intermediate assembly files
             // These have paths like CMakeFiles/xxx.dir/file.c.NNNNN.N.s
@@ -244,7 +247,7 @@ export class Cc65DebugInfo {
             const spanIds = Cc65DebugInfo.toArray(line.span);
             for (const spanId of spanIds) {
                 const span = spanMap.get(spanId);
-                if (!span || span.address === undefined) continue;
+                if (!span || span.address === undefined) { linesMissingSpan++; continue; }
 
                 const addr = span.address;
                 const addrEnd = addr + span.size - 1;
@@ -366,6 +369,7 @@ export class Cc65DebugInfo {
         // code vs rodata (both are type=ro), so overlay/segment kind is derived
         // from it.
         const codeSegmentIds = new Set<number>();
+        let functionsMissingSize = 0;
 
         for (const csym of data.csyms) {
             if (csym.sym !== undefined && csym.scope !== undefined) {
@@ -378,7 +382,7 @@ export class Cc65DebugInfo {
                     // string constant in RODATA), which would register the
                     // function at a bogus address and break locals/stack lookups.
                     const size = sym.size ?? scope.size;
-                    if (size === undefined) continue;
+                    if (size === undefined) { functionsMissingSize++; continue; }
                     const address = sym.val;
                     const endAddress = address + size - 1;
                     // Pick the source candidate in the function's own segment so
@@ -462,6 +466,11 @@ export class Cc65DebugInfo {
                 type: s.type || 'rw',
                 kind: codeSegmentIds.has(s.id) ? 'code' : 'data',
             }));
+
+        if (linesMissingFile > 0 || linesMissingSpan > 0 || functionsMissingSize > 0) {
+            logWarn(`cc65 debug info anomalies: ${linesMissingFile} line record(s) referenced an unknown file id, ` +
+                `${linesMissingSpan} referenced an unresolved span, ${functionsMissingSize} function symbol(s) had no size.`);
+        }
 
         return { addressToSource, sourceToAddresses, symbols, functions, locals, zeropageStackPointerAddr, overlayGroups, segments };
     }
