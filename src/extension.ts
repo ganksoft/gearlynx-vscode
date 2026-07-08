@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { LynxDebugSession } from './lynx_debug_session';
 import { expandTilde } from './paths';
@@ -266,21 +267,60 @@ class LynxDebugAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
     }
 }
 
+// Searches the workspace for ROM files, returning "${workspaceFolder}/..."
+// paths sorted for determinism. Empty if there is no workspace folder or no
+// ROM is found.
+async function findRomFiles(folder: vscode.WorkspaceFolder | undefined): Promise<string[]> {
+    const base = folder ?? vscode.workspace.workspaceFolders?.[0];
+    if (!base) {
+        return [];
+    }
+    const pattern = new vscode.RelativePattern(base, '**/*.{lnx,lyx}');
+    const uris = await vscode.workspace.findFiles(pattern, '**/{node_modules,out}/**');
+    return uris
+        .map(uri => '${workspaceFolder}/' + vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/'))
+        .sort();
+}
+
 class LynxConfigurationProvider implements vscode.DebugConfigurationProvider {
-    resolveDebugConfiguration(
-        _folder: vscode.WorkspaceFolder | undefined,
+    // Populates the "Add Configuration" / generate-launch.json picker. Scans
+    // the workspace for ROMs so the emitted config points at a real file.
+    // Returns nothing if none are found rather than guessing a filename.
+    async provideDebugConfigurations(
+        folder: vscode.WorkspaceFolder | undefined,
+        _token?: vscode.CancellationToken
+    ): Promise<vscode.DebugConfiguration[]> {
+        const roms = await findRomFiles(folder);
+        return roms.map(rom => ({
+            type: 'gearlynx',
+            request: 'launch',
+            name: roms.length > 1 ? `Launch ${path.basename(rom)}` : 'Launch Lynx',
+            rom,
+            stopOnEntry: false,
+            headless: true,
+        }));
+    }
+
+    async resolveDebugConfiguration(
+        folder: vscode.WorkspaceFolder | undefined,
         config: vscode.DebugConfiguration,
         _token?: vscode.CancellationToken
-    ): vscode.ProviderResult<vscode.DebugConfiguration> {
+    ): Promise<vscode.DebugConfiguration | undefined> {
         if (!config.type && !config.request && !config.name) {
             // "Just press F5" with no launch.json
             const editor = vscode.window.activeTextEditor;
             if (editor) {
+                const roms = await findRomFiles(folder);
+                if (roms.length === 0) {
+                    vscode.window.showErrorMessage('No Lynx ROM (.lnx/.lyx) found in the workspace.');
+                    return undefined;
+                }
                 config.type = 'gearlynx';
                 config.name = 'Launch Lynx';
                 config.request = 'launch';
-                config.rom = '${workspaceFolder}/game.lnx';
-                config.stopOnEntry = true;
+                config.rom = roms[0];
+                config.stopOnEntry = false;
+                config.headless = true;
             }
         }
 

@@ -142,6 +142,11 @@ the Gearlynx repository.
 
 The extension auto-detects `.dbg` or `.sym` files next to the ROM file.
 
+Steps 4-5 can be skipped: pressing F5 with no `launch.json`, or running
+"Debug: Add Configuration" for the Gearlynx type, scans the workspace for a
+`.lnx`/`.lyx` ROM and fills it in automatically (`stopOnEntry: false`,
+`headless: true`). If no ROM is found, nothing is generated.
+
 ## Launch Configuration
 
 ### Launch (starts Gearlynx)

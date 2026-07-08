@@ -195,15 +195,6 @@
             }
           }
         },
-        "initialConfigurations": [
-          {
-            "type": "gearlynx",
-            "request": "launch",
-            "name": "Launch Lynx Game",
-            "rom": "${workspaceFolder}/game.lnx",
-            "stopOnEntry": true
-          }
-        ],
         "configurationSnippets": [
           {
             "label": "Gearlynx Debugger: Launch",
@@ -213,7 +204,8 @@
               "request": "launch",
               "name": "Launch Lynx",
               "rom": "^\"\\${workspaceFolder}/${1:game.lnx}\"",
-              "stopOnEntry": true
+              "stopOnEntry": false,
+              "headless": true
             }
           },
           {
