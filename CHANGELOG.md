@@ -5,6 +5,12 @@ All notable changes to the Gearlynx Debugger extension are documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-07-07
+
+### Changed
+
+- Generating a launch.json (Add Configuration or F5) now scans the workspace for a ROM instead of a placeholder game.lnx, and defaults new configs to headless with stopOnEntry off.
+
 ## [0.2.3] - 2026-07-07
 
 ### Changed
@@ -12,7 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debug-monitor disconnects now show a toast, not just a log entry.
 - Screen Viewer shows stream errors and blacks out on session end instead of freezing on the last frame.
 - Debug-info parsing now logs symbol/function counts and warns on parse anomalies or an unreadable/empty debug file.
-- Generating a launch.json (Add Configuration or F5) now scans the workspace for a ROM instead of a placeholder game.lnx, and defaults new configs to headless with stopOnEntry off.
 
 ## [0.2.2] - 2026-07-06
 
