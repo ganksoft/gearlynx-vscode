@@ -43,7 +43,7 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 ### Overlays
 
 - **Overlay detection** from cc65 banked ROM segments sharing the same address range
-- **Overlay selector** in the debug toolbar and a panel tree for switching active overlay at runtime
+- **Overlay selector** in the debug toolbar and a panel tree for switching active overlay at runtime -- lists only code overlays (segments hosting a function symbol); data-only overlays have nothing to step through and are omitted
 - Source resolution respects the active overlay (only shows code from the selected bank)
 - The "Overlays" panel and the **Select Active Overlay** command are available without an active debug session; the debug toolbar button appears only while debugging
 
@@ -60,7 +60,9 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 - **Live screen streaming** at 60fps via raw TCP binary stream
 - **Dockable panel view** that can be dragged, floated, or docked anywhere; with a scale control (Fit, plus 1x-5x integer scaling for crisp pixels)
 - **Gamepad input** through the screen viewer (keyboard events forwarded to emulator)
-- Always visible in the Lynx panel, showing "Disconnected" until a debug session connects; auto-disconnects when the session ends
+- Always visible in the Lynx panel, showing "Disconnected" until a debug session connects
+- The panel is automatically revealed and focused when a debug session starts, so keyboard input reaches it immediately
+- Shows a stream error message and blacks out on session end, instead of freezing on the last frame
 
 ### Additional Tools
 
@@ -68,12 +70,14 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 - **Trace Logger**: start/stop CPU trace logging, view output in the "Lynx Trace Log" output panel
 - **Loaded Sources**: all source files known to the debugger are listed in VSCode's built-in "Loaded Scripts" view (Run and Debug sidebar)
 - **Extension log**: a persistent "Gearlynx Debugger" output channel showing connection status and errors (connect/attach lifecycle, protocol mismatches, socket errors), independent of the Debug Console
+- Debug-monitor disconnects also surface as a toast notification, not just a log entry
 
 ![Lynx Memory Map: address space view with code, data, RODATA, and BSS segments, overlay banks (GAME, TITLE, BONUS) shown in parallel columns, and hardware regions (Suzy, Mikey, BIOS)](images/memory-map.png)
 
 ## Requirements
 
 - [Gearlynx](https://github.com/DrHelius/Gearlynx) **1.2.15 or later** -- the first release with the `--debug-monitor` support this extension requires
+- A Lynx **BIOS image** configured in Gearlynx (see [Installing Gearlynx](#installing-gearlynx) below) -- Gearlynx will fail to run without one
 - [cc65](https://cc65.github.io/) toolchain for compiling Lynx games with debug info
 - VSCode 1.87.0 or later
 
@@ -87,6 +91,12 @@ setting (or the per-launch `gearlynxPath` attribute):
 // settings.json
 "gearlynxDebug.gearlynxPath": "C:\\path\\to\\Gearlynx.exe"
 ```
+
+Gearlynx also requires a Lynx **BIOS image** to be configured before it will run at all --
+this is independent of the extension and set up in Gearlynx itself. See the
+[Gearlynx repository](https://github.com/DrHelius/Gearlynx) for how to obtain and
+configure one. Without it, Gearlynx fails to start and the extension will report a
+connection error.
 
 On a `launch` configuration the extension starts Gearlynx for you with:
 
@@ -118,34 +128,35 @@ the Gearlynx repository.
 ## Quick Start
 
 1. Install the Gearlynx Debugger extension from the Marketplace, or package it locally with `npm run package` and install the resulting `.vsix`.
-2. Set the Gearlynx executable path in VSCode settings: `gearlynxDebug.gearlynxPath`
+2. Set the Gearlynx executable path in VSCode settings: `gearlynxDebug.gearlynxPath`. Make sure Gearlynx itself has a BIOS image configured -- see [Requirements](#requirements).
 3. Compile your cc65 Lynx game with debug info:
    ```bash
    cl65 -t lynx -g --dbgfile game.dbg -o game.lnx main.c
    ```
-4. Create a `.vscode/launch.json` in your game project:
-   ```json
-   {
-     "version": "0.2.0",
-     "configurations": [
-       {
-         "type": "gearlynx",
-         "request": "launch",
-         "name": "Debug Lynx Game",
-         "rom": "${workspaceFolder}/build/game.lnx",
-         "stopOnEntry": true
-       }
-     ]
-   }
-   ```
-5. Press F5 to start debugging
+4. Press F5. With no `.vscode/launch.json` yet, the extension scans the workspace
+   for a `.lnx`/`.lyx` ROM and starts debugging it directly (`stopOnEntry: false`,
+   `headless: true`), auto-detecting the `.dbg`/`.sym` file next to it. The same
+   scan runs if you use "Debug: Add Configuration" to generate a `launch.json`
+   instead of running immediately.
 
-The extension auto-detects `.dbg` or `.sym` files next to the ROM file.
-
-Steps 4-5 can be skipped: pressing F5 with no `launch.json`, or running
-"Debug: Add Configuration" for the Gearlynx type, scans the workspace for a
-`.lnx`/`.lyx` ROM and fills it in automatically (`stopOnEntry: false`,
-`headless: true`). If no ROM is found, nothing is generated.
+If no ROM is found, or you want to customize the config (a different port,
+`stopOnEntry: true`, `sourceRoots`, etc.), create `.vscode/launch.json`
+yourself instead of relying on auto-detection:
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "gearlynx",
+      "request": "launch",
+      "name": "Debug Lynx Game",
+      "rom": "${workspaceFolder}/build/game.lnx",
+      "stopOnEntry": true
+    }
+  ]
+}
+```
+Then press F5 to start debugging with that configuration.
 
 ## Launch Configuration
 
@@ -262,6 +273,11 @@ Or with CMake-based projects, ensure `-g` and `--dbgfile` flags are passed to th
 Provides symbol names and addresses only (no source-line mapping, no locals, no overlays). Supports multiple formats:
 - cc65 `.sym` output
 - Generic `ADDRESS LABEL` and `LABEL = $ADDRESS`
+
+Parsing logs the number of symbols, functions, locals, segments, and overlay groups found to the
+"Gearlynx Debugger" output channel, and warns there if a debug file is unreadable, empty, or
+contains records referencing unknown files/spans -- a likely sign the build did not produce
+matching debug output for the ROM.
 
 ## Architecture
 
