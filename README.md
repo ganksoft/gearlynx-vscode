@@ -1,6 +1,10 @@
 # Gearlynx Debugger - Atari Lynx Source-Level Debugger
 
+[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/ganksoft.gearlynx-debugger?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=ganksoft.gearlynx-debugger)
+
 A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx](https://github.com/DrHelius/Gearlynx) emulator. Supports C and 6502 assembly source-level debugging for games compiled with [cc65](https://cc65.github.io/).
+
+**[Install from the VS Marketplace](https://marketplace.visualstudio.com/items?itemName=ganksoft.gearlynx-debugger)**
 
 ![Gearlynx Debugger debugging an Atari Lynx game in VSCode: live screen viewer, CPU registers, watch expressions, call stack, and a source breakpoint](images/glvs-sample.png)
 
@@ -127,7 +131,7 @@ the Gearlynx repository.
 
 ## Quick Start
 
-1. Install the Gearlynx Debugger extension from the Marketplace, or package it locally with `npm run package` and install the resulting `.vsix`.
+1. Install the Gearlynx Debugger extension from the [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=ganksoft.gearlynx-debugger), or package it locally with `npm run package` and install the resulting `.vsix`.
 2. Set the Gearlynx executable path in VSCode settings: `gearlynxDebug.gearlynxPath`. Make sure Gearlynx itself has a BIOS image configured -- see [Requirements](#requirements).
 3. Compile your cc65 Lynx game with debug info:
    ```bash
