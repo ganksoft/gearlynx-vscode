@@ -1,7 +1,5 @@
 # Gearlynx Debugger - Atari Lynx Source-Level Debugger
 
-[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/ganksoft.gearlynx-debugger?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=ganksoft.gearlynx-debugger)
-
 A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx](https://github.com/DrHelius/Gearlynx) emulator. Supports C and 6502 assembly source-level debugging for games compiled with [cc65](https://cc65.github.io/).
 
 **[Install from the VS Marketplace](https://marketplace.visualstudio.com/items?itemName=ganksoft.gearlynx-debugger)**
