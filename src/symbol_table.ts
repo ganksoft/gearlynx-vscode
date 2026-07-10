@@ -115,7 +115,7 @@ export class SymbolViewProvider implements vscode.WebviewViewProvider {
     private getHtml(rows: SymbolRow[]): string {
         const rowsJson = JSON.stringify(rows.map(r => ({
             ...r,
-            sourceLabel: r.source ? `${path.basename(r.source)}:${r.line}` : '',
+            sourceLabel: r.source ? (r.line ? `${path.basename(r.source)}:${r.line}` : path.basename(r.source)) : '',
         })));
         const kindsJson = JSON.stringify(ALL_KINDS);
 

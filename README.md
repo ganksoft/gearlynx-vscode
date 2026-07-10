@@ -220,6 +220,12 @@ gearlynx --debug-monitor --debug-monitor-port 7000 game.lnx
 | `sourceRoots` | No | `[]` | Extra directories to search for source files |
 | `traceSteps` | No | `false` | Log source-line stepping decisions to the Debug Console |
 
+`sourceRoots` also resolves symbols from the cc65 runtime library itself (e.g.
+`__iodat`, `__iodir`, `ptr1`, `sp`). The compiled cc65 toolchain only ships
+prebuilt `.lib`/`.o` files, not the library's `.s` sources, so these show up
+with no location by default. Clone the [cc65 source repo](https://github.com/cc65/cc65)
+and add its `libsrc` directory to `sourceRoots` to make them resolve.
+
 ## Settings
 
 All settings are also editable in the VSCode Settings UI under **Extensions -> Gearlynx Debugger**.

@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { SourceLocation, DebugSymbol, DebugFunction, LocalVariable, OverlayGroup, SegmentInfo, DebugInfoData } from './types';
 import { logWarn } from './log';
 
@@ -40,6 +41,7 @@ interface DbgSym {
     seg?: number;
     scope?: number;
     type?: string;
+    def?: number;
 }
 
 interface DbgScope {
@@ -137,7 +139,7 @@ export class Cc65DebugInfo {
                     data.lines.push({ id: num(a, 'id'), file: num(a, 'file'), line: num(a, 'line'), span: numOrArr(a, 'span'), type: optNum(a, 'type') });
                     break;
                 case 'sym':
-                    data.syms.push({ id: num(a, 'id'), name: str(a, 'name'), val: optNum(a, 'val'), size: optNum(a, 'size'), seg: optNum(a, 'seg'), scope: optNum(a, 'scope'), type: optStr(a, 'type') });
+                    data.syms.push({ id: num(a, 'id'), name: str(a, 'name'), val: optNum(a, 'val'), size: optNum(a, 'size'), seg: optNum(a, 'seg'), scope: optNum(a, 'scope'), type: optStr(a, 'type'), def: optNum(a, 'def') });
                     break;
                 case 'scope':
                     data.scopes.push({ id: num(a, 'id'), name: str(a, 'name'), mod: optNum(a, 'mod'), parent: optNum(a, 'parent'), span: numOrArr(a, 'span'), size: optNum(a, 'size') });
@@ -249,6 +251,18 @@ export class Cc65DebugInfo {
                 const span = spanMap.get(spanId);
                 if (!span || span.address === undefined) { linesMissingSpan++; continue; }
 
+                // EXEHDR/DIRECTORY/NULL are file-layout segments, not real CPU
+                // addresses -- the linker config places their MEMORY area at
+                // start=$0000 (same as ZEROPAGE/EXTZP) because they are written
+                // to the start of the ROM file, never mapped into 6502 address
+                // space at runtime. Their line records therefore alias real
+                // zero-page variable addresses (e.g. address 0 both a ZP var
+                // and a DIRECTORY byte), which made zero-page symbols resolve
+                // to lynxhdr.s/directory.s. Skip them here as they already are
+                // for overlay detection above.
+                const spanSeg = segMap.get(span.seg);
+                if (spanSeg && (spanSeg.name === 'EXEHDR' || spanSeg.name === 'DIRECTORY' || spanSeg.name === 'NULL')) continue;
+
                 const addr = span.address;
                 const addrEnd = addr + span.size - 1;
                 const sourcePath = fileName.replace(/\\/g, '/');
@@ -358,6 +372,71 @@ export class Cc65DebugInfo {
                         });
                     }
                 }
+            }
+        }
+
+        // Backfill a declaration location for data symbols (zero-page/BSS/DATA
+        // globals) that have no code-derived entry in addressToSource -- an
+        // uninitialized global generates no instructions, so the line-record
+        // loop above never sees its declaration. cc65 does record it via the
+        // sym's `def` attribute, pointing at a `line`, but for these data-only
+        // declarations that line's file is the ephemeral intermediate assembly
+        // file cc65 generated for the translation unit (e.g.
+        // "CMakeFiles/x.dir/global.c.17712.0.s"), not the real .c file, and
+        // its line number belongs to that generated file, not the source --
+        // it is not on disk and the number would not correspond to anything
+        // meaningful. Recover only the real source file by matching the
+        // intermediate file's embedded name against the known file table; the
+        // line is left unresolved (0) rather than reporting a wrong one.
+        for (const sym of data.syms) {
+            if (sym.type !== 'lab' || sym.val === undefined || sym.seg === undefined || sym.def === undefined) continue;
+
+            // findSourceForAddress matches candidates by address only (no
+            // caller-side segment context), so a label backfilled here from
+            // EXEHDR/DIRECTORY would compete with a real ZEROPAGE/EXTZP
+            // candidate at the same aliased address (see the exclusion above,
+            // in the line-processing loop) and could win the tie by array
+            // order. Keep these segments out of addressToSource entirely.
+            const symSeg = segMap.get(sym.seg);
+            if (symSeg && (symSeg.name === 'EXEHDR' || symSeg.name === 'DIRECTORY' || symSeg.name === 'NULL')) continue;
+
+            const existing = addressToSource.get(sym.val);
+            if (existing?.some(c => c.segmentId === sym.seg)) continue;
+
+            const defLine = data.lines[sym.def];
+            if (!defLine) continue;
+            const defFile = fileMap.get(defLine.file);
+            if (!defFile) continue;
+
+            let loc: SourceLocation | null = null;
+            if (!Cc65DebugInfo.isIntermediateFile(defFile.name)) {
+                loc = {
+                    source: defFile.name.replace(/\\/g, '/'),
+                    line: defLine.line,
+                    address: sym.val,
+                    addressEnd: sym.val + (sym.size ?? 1) - 1,
+                    segmentId: sym.seg,
+                };
+            } else {
+                const m = defFile.name.replace(/\\/g, '/').match(/([^/]+\.c)\.\d+\.\d+\.s$/i);
+                const realFile = m ? data.files.find(
+                    f => path.basename(f.name).toLowerCase() === m[1].toLowerCase() && !Cc65DebugInfo.isIntermediateFile(f.name)
+                ) : undefined;
+                if (realFile) {
+                    loc = {
+                        source: realFile.name.replace(/\\/g, '/'),
+                        line: 0,
+                        address: sym.val,
+                        addressEnd: sym.val + (sym.size ?? 1) - 1,
+                        segmentId: sym.seg,
+                    };
+                }
+            }
+
+            if (loc) {
+                const list = existing || [];
+                list.push(loc);
+                if (!existing) addressToSource.set(sym.val, list);
             }
         }
 
