@@ -2,7 +2,7 @@
   "name": "gearlynx-debugger",
   "displayName": "Gearlynx Debugger",
   "description": "Source-level debugger for Atari Lynx games using the Gearlynx emulator",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "ganksoft",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "images/icon.png",
