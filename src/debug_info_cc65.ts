@@ -337,6 +337,7 @@ export class Cc65DebugInfo {
                     isGlobal: sym.scope === 0 || sym.scope === undefined,
                     isZeroPage: isZP,
                     isCVariable: looksLikeCVar,
+                    isCompilerGenerated: Cc65DebugInfo.isCompilerGeneratedLabel(sym.name),
                     segment: seg?.name || '',
                 });
             }
@@ -368,6 +369,7 @@ export class Cc65DebugInfo {
                             isGlobal: true,
                             isZeroPage: isZP,
                             isCVariable: true,
+                            isCompilerGenerated: false,
                             segment: seg?.name || '',
                         });
                     }
@@ -606,6 +608,17 @@ export class Cc65DebugInfo {
         if (Array.isArray(val)) return val as number[];
         if (typeof val === 'number') return [val];
         return [];
+    }
+
+    // cc65's C-compiler backend names its own synthetic branch targets and
+    // anonymous storage (string literals, aggregate init templates, function-
+    // local statics) with an internal counter: one uppercase letter followed
+    // by exactly 4 hex digits, e.g. "L0002", "M000A". Real symbols are always
+    // either underscore-mangled or absent from this shape entirely, so this
+    // pattern reliably flags compiler-generated labels without false
+    // positives on hand-written asm names.
+    private static isCompilerGeneratedLabel(name: string): boolean {
+        return /^[A-Z][0-9A-F]{4}$/.test(name);
     }
 
     private static isIntermediateFile(name: string): boolean {

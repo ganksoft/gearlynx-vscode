@@ -71,6 +71,7 @@ export interface DebugSymbol {
     isGlobal: boolean;
     isZeroPage: boolean;
     isCVariable: boolean;
+    isCompilerGenerated: boolean;
     segment: string;
 }
 

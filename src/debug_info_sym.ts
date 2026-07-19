@@ -61,6 +61,7 @@ export class SymDebugInfo {
                     isGlobal: true,
                     isZeroPage: address < 0x100,
                     isCVariable: false,
+                    isCompilerGenerated: /^[A-Z][0-9A-F]{4}$/.test(name),
                     segment: '',
                 });
             } else {

@@ -5,7 +5,7 @@ import { DebugInfo } from './debug_info';
 // Single source of truth for the row kinds: used both to type SymbolRow.kind
 // (so buildRows can only produce one of these) and to render the filter
 // checkboxes, so the two can't drift out of sync.
-const ALL_KINDS = ['Function', 'Global', 'Zero Page', 'Static'] as const;
+const ALL_KINDS = ['Function', 'Global', 'Zero Page', 'Static', 'Generated Label'] as const;
 type SymbolKind = typeof ALL_KINDS[number];
 
 interface SymbolRow {
@@ -50,7 +50,8 @@ function buildRows(debugInfo: DebugInfo): SymbolRow[] {
 
         const loc = debugInfo.findSourceForAddress(sym.address);
         rows.push({
-            kind: sym.isZeroPage ? 'Zero Page' : (sym.isGlobal ? 'Global' : 'Static'),
+            kind: sym.isCompilerGenerated ? 'Generated Label' :
+                sym.isZeroPage ? 'Zero Page' : (sym.isGlobal ? 'Global' : 'Static'),
             name: sym.name,
             address: sym.address,
             segment: sym.segment,
@@ -191,7 +192,10 @@ export class SymbolViewProvider implements vscode.WebviewViewProvider {
         const vscode = acquireVsCodeApi();
         const allRows = ${rowsJson};
         const allKinds = ${kindsJson};
-        const enabledKinds = new Set(allKinds);
+        // Compiler-generated labels (cc65 internal branch/storage names like
+        // "L0002", "M0001") are noisy and rarely useful, so start hidden --
+        // still filterable back on when reading a disassembly listing.
+        const enabledKinds = new Set(allKinds.filter(k => k !== 'Generated Label'));
         const tbody = document.getElementById('rows');
         const filterEl = document.getElementById('filter');
         const kindsEl = document.getElementById('kinds');
@@ -230,7 +234,7 @@ export class SymbolViewProvider implements vscode.WebviewViewProvider {
             const label = document.createElement('label');
             const cb = document.createElement('input');
             cb.type = 'checkbox';
-            cb.checked = true;
+            cb.checked = enabledKinds.has(kind);
             cb.addEventListener('change', () => {
                 if (cb.checked) enabledKinds.add(kind); else enabledKinds.delete(kind);
                 render();
