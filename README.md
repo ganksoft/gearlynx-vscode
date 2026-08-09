@@ -44,9 +44,14 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 
 ### Overlays
 
-- **Overlay detection** from cc65 banked ROM segments sharing the same address range
+The Lynx cart is not mapped into the address space -- code is loaded from the cart
+into RAM before it runs. cc65 overlay segments are linked to the same RAM address
+range and loaded on demand, so only one is resident at a time and the debugger has
+to be told which.
+
+- **Overlay detection** from cc65 overlay segments sharing the same RAM address range
 - **Overlay selector** in the debug toolbar and a panel tree for switching active overlay at runtime -- lists only code overlays (segments hosting a function symbol); data-only overlays have nothing to step through and are omitted
-- Source resolution respects the active overlay (only shows code from the selected bank)
+- Source resolution respects the active overlay (only shows code from the selected overlay)
 - The "Overlays" panel and the **Select Active Overlay** command are available without an active debug session; the debug toolbar button appears only while debugging
 
 ### Symbol Table
@@ -74,7 +79,7 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 - **Extension log**: a persistent "Gearlynx Debugger" output channel showing connection status and errors (connect/attach lifecycle, protocol mismatches, socket errors), independent of the Debug Console
 - Debug-monitor disconnects also surface as a toast notification, not just a log entry
 
-![Lynx Memory Map: address space view with code, data, RODATA, and BSS segments, overlay banks (GAME, TITLE, BONUS) shown in parallel columns, and hardware regions (Suzy, Mikey, BIOS)](images/memory-map.png)
+![Lynx Memory Map: address space view with code, data, RODATA, and BSS segments, overlay segments (GAME, TITLE, BONUS) shown in parallel columns over the address range they share, and hardware regions (Suzy, Mikey, BIOS)](images/memory-map.png)
 
 ## Requirements
 
@@ -257,7 +262,7 @@ All commands are available via the Command Palette (`Ctrl+Shift+P`):
 
 | Command | Description |
 |---------|-------------|
-| `Gearlynx Debugger: Select Active Overlay` | Switch the active ROM overlay/bank segment |
+| `Gearlynx Debugger: Select Active Overlay` | Switch which overlay segment is treated as resident |
 | `Gearlynx Debugger: Show Memory Map` | Open the memory map visualization |
 | `Gearlynx Debugger: Start Trace Logger` | Begin CPU instruction trace logging |
 | `Gearlynx Debugger: Stop Trace Logger` | Stop trace logging |
@@ -314,7 +319,7 @@ VSCode                              Gearlynx
 - **Local variables**: cc65 `auto` locals are read from the software stack using the scope/csym offsets in the debug info. Values are only meaningful inside the function body once its stack frame is established, and the stack-pointer correction is heuristic.
 - **Intermediate files**: cc65-generated assembly files (`.s`, `.mac`, `.inc` intermediates) are automatically filtered from source resolution.
 - **Step back**: Uses Gearlynx's rewind feature and operates at frame granularity (one full frame per step-back), not instruction-level.
-- **Overlay selection**: Only one overlay bank is active at a time. Source resolution and globals display reflect the selected overlay. Switch overlays via the debug toolbar button or the Overlays panel tree (both only appear when overlays are detected in the debug info). With no overlay selected the address space is ambiguous; select the bank that is currently resident.
+- **Overlay selection**: Only one overlay is resident in RAM at a time, and nothing in the debug info says which one -- it describes them all equally. Source resolution and globals display reflect the selected overlay. Switch overlays via the debug toolbar button or the Overlays panel tree (both only appear when overlays are detected in the debug info). With no overlay selected the shared address range is ambiguous; select the one the game currently has loaded.
 - **Headless mode**: Audio is active in headless mode. The Screen Viewer in VSCode provides the display.
 - **Path matching**: Source file paths are matched case-insensitively on Windows.
 

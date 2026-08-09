@@ -168,13 +168,31 @@ export class Cc65DebugInfo {
         const functions: DebugFunction[] = [];
         const locals: LocalVariable[] = [];
 
-        // Find zeropage stack pointer address (default 0x02 for cc65 on Lynx)
-        let zeropageStackPointerAddr = 0x02;
-        for (const seg of data.segs) {
-            if (seg.name === 'ZEROPAGE') {
-                zeropageStackPointerAddr = seg.start;
+        // The cc65 software stack pointer is the "c_sp" symbol (plain "sp" in
+        // older cc65; the rename came without a version bump, so check both).
+        // Not the start of ZEROPAGE -- a user module declaring zero-page
+        // storage can link ahead of cc65's zeropage.o and push c_sp up, which
+        // silently offsets every local variable address derived from it.
+        let zeropageStackPointerAddr: number | undefined;
+        for (const sym of data.syms) {
+            if (sym.type === 'lab' && sym.val !== undefined && (sym.name === 'c_sp' || sym.name === 'sp')) {
+                zeropageStackPointerAddr = sym.val;
                 break;
             }
+        }
+        if (zeropageStackPointerAddr === undefined) {
+            // No cc65 runtime (pure assembly project) means no C locals to
+            // resolve, so keep the old guess rather than change behaviour.
+            for (const seg of data.segs) {
+                if (seg.name === 'ZEROPAGE') {
+                    zeropageStackPointerAddr = seg.start;
+                    break;
+                }
+            }
+            logWarn('cc65 debug info: no "c_sp"/"sp" symbol found; ' +
+                `falling back to $${(zeropageStackPointerAddr ?? 0).toString(16).toUpperCase().padStart(4, '0')} ` +
+                'for the software stack pointer. Local variables may be wrong.');
+            zeropageStackPointerAddr = zeropageStackPointerAddr ?? 0;
         }
 
         // Detect overlay groups -- code segments sharing the same start address

@@ -57,6 +57,10 @@ Development Host, then debug a Lynx project in the new window.
   with `_` to be allowed.
 - ASCII only in code comments and string literals (no smart quotes, em/en
   dashes, or arrows -- use `--`, `->`, straight quotes).
+- Keep comments short but meaningful. Explain *why* a non-obvious choice was
+  made, not what the code already says. One or two lines is usually enough;
+  a paragraph is a sign the explanation belongs in the commit message or
+  `docs/`. Do not narrate the investigation that led to the change.
 - Do not introduce new runtime dependencies without a concrete need; the only
   runtime dep is `@vscode/debugadapter`.
 

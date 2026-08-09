@@ -73,13 +73,17 @@ export class SymDebugInfo {
             logWarn(`sym file: ${unmatchedLines} line(s) did not match a known symbol format and were skipped.`);
         }
 
+        // cc65 software stack pointer ("sp" in older cc65). Unused here -- a
+        // sym file has no locals -- but $02 was simply wrong; that is sreg.
+        const spSymbol = symbols.find(s => s.name === 'c_sp' || s.name === 'sp');
+
         return {
             addressToSource: new Map(),
             sourceToAddresses: new Map(),
             symbols: symbols,
             functions: [],
             locals: [],
-            zeropageStackPointerAddr: 0x02,
+            zeropageStackPointerAddr: spSymbol ? spSymbol.address : 0,
             overlayGroups: [],
             segments: [],
         };
