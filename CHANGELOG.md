@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Local variables now resolve the cc65 software stack pointer from the `c_sp`/`sp` symbol instead of assuming it sits at the start of ZEROPAGE; projects placing their own variables in ZEROPAGE previously showed wrong values for every local.
+- Locals pane now resolves cc65 `register` variables (`sc=reg`), which were previously dropped instead of shown.
 
 ## [0.2.6] - 2026-07-19
 

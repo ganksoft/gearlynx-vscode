@@ -42,6 +42,7 @@ interface DbgSym {
     scope?: number;
     type?: string;
     def?: number;
+    exp?: number;
 }
 
 interface DbgScope {
@@ -139,7 +140,7 @@ export class Cc65DebugInfo {
                     data.lines.push({ id: num(a, 'id'), file: num(a, 'file'), line: num(a, 'line'), span: numOrArr(a, 'span'), type: optNum(a, 'type') });
                     break;
                 case 'sym':
-                    data.syms.push({ id: num(a, 'id'), name: str(a, 'name'), val: optNum(a, 'val'), size: optNum(a, 'size'), seg: optNum(a, 'seg'), scope: optNum(a, 'scope'), type: optStr(a, 'type'), def: optNum(a, 'def') });
+                    data.syms.push({ id: num(a, 'id'), name: str(a, 'name'), val: optNum(a, 'val'), size: optNum(a, 'size'), seg: optNum(a, 'seg'), scope: optNum(a, 'scope'), type: optStr(a, 'type'), def: optNum(a, 'def'), exp: optNum(a, 'exp') });
                     break;
                 case 'scope':
                     data.scopes.push({ id: num(a, 'id'), name: str(a, 'name'), mod: optNum(a, 'mod'), parent: optNum(a, 'parent'), span: numOrArr(a, 'span'), size: optNum(a, 'size') });
@@ -151,6 +152,22 @@ export class Cc65DebugInfo {
         }
 
         return data;
+    }
+
+    // Follows an imported sym (type=imp, no val) through its exp chain to the
+    // sym that actually defines it (type=lab, has val). Bounded to guard
+    // against a malformed/cyclic .dbg file.
+    private static resolveSymAddress(sym: DbgSym | undefined, syms: DbgSym[], depth: number = 0): number | undefined {
+        if (!sym || depth > 8) {
+            return undefined;
+        }
+        if (sym.val !== undefined) {
+            return sym.val;
+        }
+        if (sym.exp !== undefined) {
+            return Cc65DebugInfo.resolveSymAddress(syms[sym.exp], syms, depth + 1);
+        }
+        return undefined;
     }
 
     private static resolve(data: DbgData, _sourceRoots: string[]): DebugInfoData {
@@ -503,12 +520,12 @@ export class Cc65DebugInfo {
             }
         }
 
-        // Second pass: extract local variables (csyms with sc=auto)
+        // Second pass: extract local variables (csyms with sc=auto or sc=reg)
         for (const csym of data.csyms) {
-            if (csym.sc !== 'auto' || csym.scope === undefined) {
+            if ((csym.sc !== 'auto' && csym.sc !== 'reg') || csym.scope === undefined) {
                 continue;
             }
-            if (csym.sym !== undefined) {
+            if (csym.sc === 'auto' && csym.sym !== undefined) {
                 continue; // has a code symbol -- this is a function, not a local
             }
 
@@ -517,7 +534,7 @@ export class Cc65DebugInfo {
             let maxStackOffset = 0;
 
             // Collect max offset from siblings for stack pointer correction
-            if (csym.offs !== undefined) {
+            if (csym.sc === 'auto' && csym.offs !== undefined) {
                 for (const sibling of data.csyms) {
                     if (sibling.scope === csym.scope && sibling.sc === 'auto' && sibling.offs !== undefined) {
                         if (-sibling.offs > maxStackOffset) {
@@ -537,7 +554,32 @@ export class Cc65DebugInfo {
                 currentScope = s.parent;
             }
 
-            if (funcScope) {
+            if (!funcScope) {
+                continue;
+            }
+
+            if (csym.sc === 'reg') {
+                // Register variables live in "regbank", a small zero-page
+                // scratch buffer shared by every function in the program (not
+                // a per-call stack slot). The csym's own sym is normally just
+                // an import of it, so the real address has to come from
+                // following exp to the defining sym.
+                const regBase = csym.sym !== undefined
+                    ? Cc65DebugInfo.resolveSymAddress(data.syms[csym.sym], data.syms)
+                    : undefined;
+                if (regBase === undefined) {
+                    continue;
+                }
+                locals.push({
+                    name: csym.name,
+                    scopeId: csym.scope,
+                    functionAddress: funcScope.address,
+                    functionEndAddress: funcScope.endAddress,
+                    stackOffset: 0,
+                    stackPointerOffset: 0,
+                    registerAddress: regBase + (csym.offs ?? 0),
+                });
+            } else {
                 locals.push({
                     name: csym.name,
                     scopeId: csym.scope,

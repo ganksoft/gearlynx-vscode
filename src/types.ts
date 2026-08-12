@@ -91,6 +91,7 @@ export interface LocalVariable {
     functionEndAddress: number;
     stackOffset: number;
     stackPointerOffset: number;
+    registerAddress?: number;
 }
 
 export interface DebugInfoData {

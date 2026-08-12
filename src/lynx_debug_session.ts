@@ -624,16 +624,25 @@ export class LynxDebugSession extends LoggingDebugSession {
             return;
         }
 
-        // Read the cc65 software stack pointer from zero page
-        const spAddr = this.debugInfo.getZeropageStackPointerAddr();
-        const spHex = await this.monitor.getMemory(0, spAddr, 2);
-        const spLo = parseInt(spHex.substring(0, 2), 16);
-        const spHi = parseInt(spHex.substring(2, 4), 16);
-        const stackPtr = spLo | (spHi << 8);
+        // Read the cc65 software stack pointer from zero page. Only needed
+        // for sc=auto locals; sc=reg locals resolve to an absolute address
+        // and don't touch it.
+        let stackPtr = 0;
+        if (localVars.some(l => l.registerAddress === undefined)) {
+            const spAddr = this.debugInfo.getZeropageStackPointerAddr();
+            const spHex = await this.monitor.getMemory(0, spAddr, 2);
+            const spLo = parseInt(spHex.substring(0, 2), 16);
+            const spHi = parseInt(spHex.substring(2, 4), 16);
+            stackPtr = spLo | (spHi << 8);
+        }
 
         for (const local of localVars) {
-            // Has stack offset -- read value from stack
-            const addr = stackPtr + local.stackPointerOffset + local.stackOffset;
+            // Register variables (cc65 sc=reg) live at a fixed zero-page
+            // address in the shared regbank buffer; stack (auto) locals are
+            // relative to the current cc65 software stack pointer.
+            const addr = local.registerAddress !== undefined
+                ? local.registerAddress
+                : stackPtr + local.stackPointerOffset + local.stackOffset;
             try {
                 const hex = await this.monitor.getMemory(0, addr & 0xFFFF, 2);
                 const lo = parseInt(hex.substring(0, 2), 16);

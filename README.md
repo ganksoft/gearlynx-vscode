@@ -16,7 +16,7 @@ A Visual Studio Code debugger extension for Atari Lynx games using the [Gearlynx
 - **Step back** (frame-level rewind using Gearlynx's rewind feature)
 - **Source-line stepping**: steps through 6502 instructions until the source line changes
 - **Call stack** with source file locations and symbol names
-- **Disassembly view** for stepping through code without source mapping
+- **Disassembly view**: open from any source line, step instruction-by-instruction via the toolbar's granularity toggle (Line/Instruction), and jump back to source at any point
 - **Goto targets**: jump execution to a specific source line
 
 ### Breakpoints
