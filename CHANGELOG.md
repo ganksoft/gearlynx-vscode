@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Locals pane now resolves cc65 `static` local variables (`sc=static`), which were previously dropped instead of shown.
+- Locals pane and its function-name fallback no longer leak variables/functions from a different, non-resident overlay when two overlay segments' address ranges collide.
+
 ## [0.2.7] - 2026-08-11
 
 ### Fixed
