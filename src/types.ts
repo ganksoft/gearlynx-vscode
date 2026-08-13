@@ -82,6 +82,7 @@ export interface DebugFunction {
     source: string;
     line: number;
     segment: string;
+    segmentId: number;
 }
 
 export interface LocalVariable {
@@ -92,6 +93,7 @@ export interface LocalVariable {
     stackOffset: number;
     stackPointerOffset: number;
     registerAddress?: number;
+    segmentId: number;
 }
 
 export interface DebugInfoData {

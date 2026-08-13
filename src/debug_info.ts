@@ -196,10 +196,22 @@ export class DebugInfo {
         return this.data.addressToSource;
     }
 
+    // Overlay-aware: cc65 overlay segments share the same runtime address
+    // range (only one is resident at a time), so a plain address-range filter
+    // would also match locals from a same-address function in an unselected,
+    // non-resident overlay. See setActiveOverlay/isSegmentActive.
     getLocalsForAddress(pc: number): LocalVariable[] {
         return this.data.locals.filter(
-            l => pc >= l.functionAddress && pc <= l.functionEndAddress
+            l => pc >= l.functionAddress && pc <= l.functionEndAddress && this.isSegmentActive(l.segmentId)
         );
+    }
+
+    // Overlay-aware equivalent of getFunctions().find(...) by address; see
+    // getLocalsForAddress for why the active-overlay filter is needed here too.
+    findFunctionForAddress(pc: number): DebugFunction | null {
+        return this.data.functions.find(
+            f => pc >= f.address && pc <= f.addressEnd && this.isSegmentActive(f.segmentId)
+        ) || null;
     }
 
     getZeropageStackPointerAddr(): number {

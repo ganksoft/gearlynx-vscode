@@ -612,8 +612,7 @@ export class LynxDebugSession extends LoggingDebugSession {
 
         if (localVars.length === 0) {
             // Check if we're in a known function but cc65 didn't emit local info
-            const funcs = this.debugInfo.getFunctions();
-            const inFunc = funcs.find(f => regs.pc >= f.address && regs.pc <= f.addressEnd);
+            const inFunc = this.debugInfo.findFunctionForAddress(regs.pc);
             if (inFunc) {
                 variables.push(new Variable(
                     `(${inFunc.name})`,

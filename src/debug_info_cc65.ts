@@ -52,6 +52,7 @@ interface DbgScope {
     parent?: number;
     span?: number | number[];
     size?: number;
+    sym?: number;
 }
 
 interface DbgCSym {
@@ -143,7 +144,7 @@ export class Cc65DebugInfo {
                     data.syms.push({ id: num(a, 'id'), name: str(a, 'name'), val: optNum(a, 'val'), size: optNum(a, 'size'), seg: optNum(a, 'seg'), scope: optNum(a, 'scope'), type: optStr(a, 'type'), def: optNum(a, 'def'), exp: optNum(a, 'exp') });
                     break;
                 case 'scope':
-                    data.scopes.push({ id: num(a, 'id'), name: str(a, 'name'), mod: optNum(a, 'mod'), parent: optNum(a, 'parent'), span: numOrArr(a, 'span'), size: optNum(a, 'size') });
+                    data.scopes.push({ id: num(a, 'id'), name: str(a, 'name'), mod: optNum(a, 'mod'), parent: optNum(a, 'parent'), span: numOrArr(a, 'span'), size: optNum(a, 'size'), sym: optNum(a, 'sym') });
                     break;
                 case 'csym':
                     data.csyms.push({ id: num(a, 'id'), name: str(a, 'name'), scope: optNum(a, 'scope'), sym: optNum(a, 'sym'), offs: optNum(a, 'offs'), sc: optStr(a, 'sc') });
@@ -479,7 +480,7 @@ export class Cc65DebugInfo {
 
         // Process csyms to find functions and local variables
         // First pass: identify function scopes
-        const scopeFunctionMap = new Map<number, { address: number; endAddress: number }>();
+        const scopeFunctionMap = new Map<number, { address: number; endAddress: number; segmentId: number }>();
         // Segments that host at least one function symbol are code segments.
         // This is the only name-independent signal cc65 debug info gives us for
         // code vs rodata (both are type=ro), so overlay/segment kind is derived
@@ -506,6 +507,7 @@ export class Cc65DebugInfo {
                     const candidates = addressToSource.get(address);
                     const loc = candidates?.find(c => c.segmentId === sym.seg) ?? candidates?.[0];
                     const seg = sym.seg !== undefined ? segMap.get(sym.seg) : undefined;
+                    const segmentId = sym.seg ?? -1;
                     functions.push({
                         name: csym.name,
                         address,
@@ -513,24 +515,29 @@ export class Cc65DebugInfo {
                         source: loc?.source || '',
                         line: loc?.line || 0,
                         segment: seg?.name || '',
+                        segmentId,
                     });
-                    scopeFunctionMap.set(csym.scope, { address, endAddress });
+                    scopeFunctionMap.set(csym.scope, { address, endAddress, segmentId });
                     if (sym.seg !== undefined) codeSegmentIds.add(sym.seg);
                 }
             }
         }
 
-        // Second pass: extract local variables (csyms with sc=auto or sc=reg)
+        // Second pass: extract local variables (csyms with sc=auto, sc=reg, or sc=static)
         for (const csym of data.csyms) {
-            if ((csym.sc !== 'auto' && csym.sc !== 'reg') || csym.scope === undefined) {
+            if ((csym.sc !== 'auto' && csym.sc !== 'reg' && csym.sc !== 'static') || csym.scope === undefined) {
                 continue;
             }
             if (csym.sc === 'auto' && csym.sym !== undefined) {
                 continue; // has a code symbol -- this is a function, not a local
             }
+            if (csym.sc === 'static' && csym.sym !== undefined && data.scopes[csym.scope]?.sym === csym.sym) {
+                continue; // self-referential: cc65 emits this csym for the static
+                // function's own declaration, not a function-local static variable
+            }
 
             // Walk up the scope tree to find the enclosing function
-            let funcScope: { address: number; endAddress: number } | undefined;
+            let funcScope: { address: number; endAddress: number; segmentId: number } | undefined;
             let maxStackOffset = 0;
 
             // Collect max offset from siblings for stack pointer correction
@@ -558,16 +565,17 @@ export class Cc65DebugInfo {
                 continue;
             }
 
-            if (csym.sc === 'reg') {
-                // Register variables live in "regbank", a small zero-page
-                // scratch buffer shared by every function in the program (not
-                // a per-call stack slot). The csym's own sym is normally just
-                // an import of it, so the real address has to come from
-                // following exp to the defining sym.
-                const regBase = csym.sym !== undefined
+            if (csym.sc === 'reg' || csym.sc === 'static') {
+                // sc=reg lives in the shared regbank; sc=static is a genuine
+                // global label the compiler synthesized for the function-local
+                // static. Both bypass the cc65 software stack entirely, so
+                // resolve straight to an absolute address via the same
+                // imp/exp-chain-following helper (registerAddress is reused as
+                // "resolved absolute address", not literally "in a register").
+                const base = csym.sym !== undefined
                     ? Cc65DebugInfo.resolveSymAddress(data.syms[csym.sym], data.syms)
                     : undefined;
-                if (regBase === undefined) {
+                if (base === undefined) {
                     continue;
                 }
                 locals.push({
@@ -577,7 +585,8 @@ export class Cc65DebugInfo {
                     functionEndAddress: funcScope.endAddress,
                     stackOffset: 0,
                     stackPointerOffset: 0,
-                    registerAddress: regBase + (csym.offs ?? 0),
+                    registerAddress: base + (csym.offs ?? 0),
+                    segmentId: funcScope.segmentId,
                 });
             } else {
                 locals.push({
@@ -589,6 +598,7 @@ export class Cc65DebugInfo {
                     // parameter), so a missing offset means 0, not "unknown".
                     stackOffset: csym.offs ?? 0,
                     stackPointerOffset: maxStackOffset,
+                    segmentId: funcScope.segmentId,
                 });
             }
         }
