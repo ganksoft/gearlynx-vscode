@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-08-13
+
 ### Added
 
 - Launch now warns (toast, Debug Console, and Output panel) when a source file has changed since the `.dbg` was built, so stepping/breakpoints against a stale build are easier to spot.
