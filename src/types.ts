@@ -83,6 +83,8 @@ export interface DebugFunction {
     line: number;
     segment: string;
     segmentId: number;
+    isLibrary: boolean;
+    libraryName?: string;
 }
 
 export interface LocalVariable {

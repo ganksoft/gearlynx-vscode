@@ -487,26 +487,40 @@ export class LynxDebugSession extends LoggingDebugSession {
                 source?.line
             );
             topFrame.instructionPointerReference = regs.pc.toString();
+            const topFn = this.debugInfo?.findFunctionForAddress(regs.pc);
+            if (topFn?.isLibrary) {
+                (topFrame as unknown as DebugProtocol.StackFrame).presentationHint = 'subtle';
+            }
             frames.push(topFrame);
 
-            // Call stack from emulator
+            // Call stack from emulator. Each entry is one still-active JSR:
+            // "function" is the callee's entry address, "return" is where
+            // execution resumes in the caller once that callee returns.
+            // Entries are innermost-first (the emulator pops its native LIFO
+            // stack), so entry i's "return" address is exactly where the
+            // caller at DAP frame i+1 is currently paused -- not entry i's
+            // "function" address, which is one call level too deep.
             const callStackData = await this.monitor.getCallStack();
-            if (callStackData && callStackData['entries']) {
-                const entries = callStackData['entries'] as Array<{
-                    src: number;
-                    dest: number;
-                    back: number;
-                }>;
-                for (let i = 0; i < entries.length; i++) {
-                    const entry = entries[i];
-                    const entrySource = this.resolveSource(entry.dest);
+            const stack = callStackData?.['stack'] as Array<{
+                function: string;
+                source: string;
+                return: string;
+            }> | undefined;
+            if (stack) {
+                for (let i = 0; i < stack.length; i++) {
+                    const callerPc = parseInt(stack[i].return.replace('$', ''), 16);
+                    const entrySource = this.resolveSource(callerPc);
                     const frame = new StackFrame(
                         i + 1,
-                        this.formatAddress(entry.dest),
+                        this.formatAddress(callerPc),
                         entrySource?.vscodeSource,
                         entrySource?.line
                     );
-                    frame.instructionPointerReference = entry.dest.toString();
+                    frame.instructionPointerReference = callerPc.toString();
+                    const fn = this.debugInfo?.findFunctionForAddress(callerPc);
+                    if (fn?.isLibrary) {
+                        (frame as unknown as DebugProtocol.StackFrame).presentationHint = 'subtle';
+                    }
                     frames.push(frame);
                 }
             }
@@ -1594,14 +1608,25 @@ export class LynxDebugSession extends LoggingDebugSession {
     }
 
     private formatAddress(addr: number): string {
-        let label = `$${addr.toString(16).toUpperCase().padStart(4, '0')}`;
+        const hex = `$${addr.toString(16).toUpperCase().padStart(4, '0')}`;
         if (this.debugInfo) {
+            // Prefer the enclosing function: findSymbolAtAddress only matches a
+            // function's exact entry address, so it misses every call-stack
+            // caller frame (a return address, never the entry point) and any
+            // address reached after single-stepping past a function's first
+            // instruction.
+            const fn = this.debugInfo.findFunctionForAddress(addr);
+            if (fn) {
+                const offset = addr - fn.address;
+                const name = offset > 0 ? `${fn.name}+${offset}` : fn.name;
+                return `${name} (${hex})`;
+            }
             const sym = this.debugInfo.findSymbolAtAddress(addr);
             if (sym) {
-                label = `${sym.name} (${label})`;
+                return `${sym.name} (${hex})`;
             }
         }
-        return label;
+        return hex;
     }
 
     private makeVar(name: string, value: number, width: number): Variable {

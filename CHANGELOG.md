@@ -10,11 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Launch now warns (toast, Debug Console, and Output panel) when a source file has changed since the `.dbg` was built, so stepping/breakpoints against a stale build are easier to spot.
+- Stack frames from cc65 runtime/library code (via `.dbg` module/library records) now render de-emphasized in the Call Stack view.
 
 ### Fixed
 
 - Locals pane now resolves cc65 `static` local variables (`sc=static`), which were previously dropped instead of shown.
 - Locals pane and its function-name fallback no longer leak variables/functions from a different, non-resident overlay when two overlay segments' address ranges collide.
+- Call Stack view now shows the actual call chain instead of just the current frame, and addresses (call-stack frames, stepping) now label the enclosing function instead of falling back to a bare `$addr` whenever execution isn't at a function's exact entry point.
 
 ## [0.2.7] - 2026-08-11
 

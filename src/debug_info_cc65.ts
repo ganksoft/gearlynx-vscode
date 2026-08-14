@@ -65,6 +65,17 @@ interface DbgCSym {
     sc?: string;
 }
 
+interface DbgMod {
+    id: number;
+    file?: number;
+    lib?: number;
+}
+
+interface DbgLib {
+    id: number;
+    name: string;
+}
+
 interface DbgData {
     files: DbgFile[];
     segs: DbgSegment[];
@@ -73,6 +84,8 @@ interface DbgData {
     syms: DbgSym[];
     scopes: DbgScope[];
     csyms: DbgCSym[];
+    mods: DbgMod[];
+    libs: DbgLib[];
 }
 
 export class Cc65DebugInfo {
@@ -97,6 +110,8 @@ export class Cc65DebugInfo {
             syms: [],
             scopes: [],
             csyms: [],
+            mods: [],
+            libs: [],
         };
 
         const num = (attrs: Map<string, unknown>, key: string, def: number = 0): number => {
@@ -149,6 +164,12 @@ export class Cc65DebugInfo {
                     break;
                 case 'csym':
                     data.csyms.push({ id: num(a, 'id'), name: str(a, 'name'), scope: optNum(a, 'scope'), sym: optNum(a, 'sym'), offs: optNum(a, 'offs'), sc: optStr(a, 'sc') });
+                    break;
+                case 'mod':
+                    data.mods.push({ id: num(a, 'id'), file: optNum(a, 'file'), lib: optNum(a, 'lib') });
+                    break;
+                case 'lib':
+                    data.libs.push({ id: num(a, 'id'), name: str(a, 'name') });
                     break;
             }
         }
@@ -480,6 +501,11 @@ export class Cc65DebugInfo {
         }
 
         // Process csyms to find functions and local variables
+        const modMap = new Map<number, DbgMod>();
+        for (const mod of data.mods) modMap.set(mod.id, mod);
+        const libMap = new Map<number, DbgLib>();
+        for (const lib of data.libs) libMap.set(lib.id, lib);
+
         // First pass: identify function scopes
         const scopeFunctionMap = new Map<number, { address: number; endAddress: number; segmentId: number }>();
         // Segments that host at least one function symbol are code segments.
@@ -509,6 +535,8 @@ export class Cc65DebugInfo {
                     const loc = candidates?.find(c => c.segmentId === sym.seg) ?? candidates?.[0];
                     const seg = sym.seg !== undefined ? segMap.get(sym.seg) : undefined;
                     const segmentId = sym.seg ?? -1;
+                    const mod = scope.mod !== undefined ? modMap.get(scope.mod) : undefined;
+                    const lib = mod?.lib !== undefined ? libMap.get(mod.lib) : undefined;
                     functions.push({
                         name: csym.name,
                         address,
@@ -517,6 +545,8 @@ export class Cc65DebugInfo {
                         line: loc?.line || 0,
                         segment: seg?.name || '',
                         segmentId,
+                        isLibrary: lib !== undefined,
+                        libraryName: lib?.name,
                     });
                     scopeFunctionMap.set(csym.scope, { address, endAddress, segmentId });
                     if (sym.seg !== undefined) codeSegmentIds.add(sym.seg);
