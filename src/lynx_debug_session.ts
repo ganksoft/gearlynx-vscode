@@ -316,10 +316,8 @@ export class LynxDebugSession extends LoggingDebugSession {
             await this.checkProtocol();
             this.sendEvent(new InitializedEvent());
 
-            // Reflect the emulator's actual run state. Unlike launch, an attach
-            // joins an emulator that may already be paused/stopped; without this
-            // the debug UI assumes the target is running and shows only Pause.
-            // Emit a stopped event so the toolbar shows Continue/step controls.
+            // Unlike launch, attach joins an emulator that may already be
+            // paused; reflect that so the toolbar shows Continue/step, not Pause.
             try {
                 const status = await this.monitor.getStatus();
                 if (status.paused || status.idle) {
@@ -493,13 +491,9 @@ export class LynxDebugSession extends LoggingDebugSession {
             }
             frames.push(topFrame);
 
-            // Call stack from emulator. Each entry is one still-active JSR:
-            // "function" is the callee's entry address, "return" is where
-            // execution resumes in the caller once that callee returns.
-            // Entries are innermost-first (the emulator pops its native LIFO
-            // stack), so entry i's "return" address is exactly where the
-            // caller at DAP frame i+1 is currently paused -- not entry i's
-            // "function" address, which is one call level too deep.
+            // Call stack from emulator, innermost-first. Entry i's "return"
+            // address is where the caller at DAP frame i+1 is paused -- not
+            // entry i's "function" address, which is one call level too deep.
             const callStackData = await this.monitor.getCallStack();
             const stack = callStackData?.['stack'] as Array<{
                 function: string;
@@ -1610,11 +1604,9 @@ export class LynxDebugSession extends LoggingDebugSession {
     private formatAddress(addr: number): string {
         const hex = `$${addr.toString(16).toUpperCase().padStart(4, '0')}`;
         if (this.debugInfo) {
-            // Prefer the enclosing function: findSymbolAtAddress only matches a
-            // function's exact entry address, so it misses every call-stack
-            // caller frame (a return address, never the entry point) and any
-            // address reached after single-stepping past a function's first
-            // instruction.
+            // Prefer the enclosing function: findSymbolAtAddress only matches
+            // an exact entry address, missing return addresses and mid-function
+            // step positions.
             const fn = this.debugInfo.findFunctionForAddress(addr);
             if (fn) {
                 const offset = addr - fn.address;

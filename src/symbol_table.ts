@@ -2,9 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { DebugInfo } from './debug_info';
 
-// Single source of truth for the row kinds: used both to type SymbolRow.kind
-// (so buildRows can only produce one of these) and to render the filter
-// checkboxes, so the two can't drift out of sync.
+// Single source of truth for row kinds: types SymbolRow.kind and renders the
+// filter checkboxes, so the two can't drift out of sync.
 const ALL_KINDS = ['Function', 'Global', 'Zero Page', 'Static', 'Generated Label'] as const;
 type SymbolKind = typeof ALL_KINDS[number];
 
@@ -17,11 +16,9 @@ interface SymbolRow {
     line: number;
 }
 
-// Build the flat row list shown in the table. Functions and plain symbols come
-// from separate DebugInfo arrays (a function's own `source`/`line` fields are
-// the raw, unresolved paths from the .dbg file), so both go through
-// findSourceForAddress -- the same resolved-path lookup used for call-stack
-// frames -- to get a location that's guaranteed to exist on disk (or none).
+// Functions and plain symbols come from separate DebugInfo arrays with raw,
+// unresolved source/line fields, so both go through findSourceForAddress to
+// get a location guaranteed to exist on disk (or none).
 function buildRows(debugInfo: DebugInfo): SymbolRow[] {
     const rows: SymbolRow[] = [];
     const functionAddresses = new Set<number>();
@@ -40,12 +37,10 @@ function buildRows(debugInfo: DebugInfo): SymbolRow[] {
     }
 
     for (const sym of debugInfo.getSymbols()) {
-        // cc65 .dbg files record a function twice: a csym (C-level, no
-        // underscore -- becomes a Function row above) and its own assembly
-        // entry label (underscore-prefixed, "Static") at the same address.
-        // Skip the label here so the function isn't listed twice; it stays in
-        // DebugInfo.getSymbols() itself since findSymbol() (function
-        // breakpoints, hover/watch evaluation) still needs to resolve it.
+        // cc65 records a function twice: a csym (Function row above) and its
+        // own assembly entry label at the same address. Skip the label here
+        // so it isn't listed twice, but keep it in getSymbols() since
+        // findSymbol() still needs to resolve it.
         if (functionAddresses.has(sym.address)) continue;
 
         const loc = debugInfo.findSourceForAddress(sym.address);

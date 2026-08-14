@@ -1,10 +1,8 @@
 import * as os from 'os';
 import * as path from 'path';
 
-// Expand a leading "~" (or "~/..." / "~\...") to the user's home directory.
-// VSCode and Node do not perform shell tilde expansion, so paths entered with
-// a "~" must be expanded before they reach any fs or child_process call.
-// Returns the input unchanged when it is empty or does not start with "~".
+// VSCode and Node don't do shell tilde expansion, so a leading "~" must be
+// expanded before a path reaches any fs or child_process call.
 export function expandTilde(p: string | undefined): string | undefined {
     if (!p) {
         return p;

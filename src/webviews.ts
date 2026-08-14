@@ -72,10 +72,9 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    // Give the screen canvas DOM focus so keyboard input is routed to the
-    // emulator. Revealing the view (VS Code's built-in <viewId>.focus command)
-    // focuses the view host; this re-focuses the canvas inside it, which matters
-    // when the view was already resolved from a previous run.
+    // Re-focuses the canvas inside the view (not just the view host, which
+    // VS Code's built-in focus command already does) so keyboard input routes
+    // to the emulator.
     public focusScreen(): void {
         this.view?.webview.postMessage({ command: 'focus' });
     }

@@ -194,11 +194,9 @@ export class Cc65DebugInfo {
     }
 
     private static resolve(data: DbgData, _sourceRoots: string[]): DebugInfoData {
-        // address -> source candidates, at most one per segment. Overlay segments
-        // share CPU addresses (e.g. GAME_CODE and TITLE_CODE both load at $200),
-        // so a single entry per address would let one overlay's line records
-        // clobber another's. Keeping a candidate per segment lets
-        // findSourceForAddress pick the one whose overlay is active.
+        // address -> source candidates, at most one per segment. Overlay
+        // segments share CPU addresses, so a single entry per address would
+        // let one overlay's line records clobber another's.
         const addressToSource = new Map<number, SourceLocation[]>();
         // Tracks which (address, segment) pairs came from a C line, so an
         // assembly line never overwrites a C line within the same segment.
@@ -208,11 +206,9 @@ export class Cc65DebugInfo {
         const functions: DebugFunction[] = [];
         const locals: LocalVariable[] = [];
 
-        // The cc65 software stack pointer is the "c_sp" symbol (plain "sp" in
-        // older cc65; the rename came without a version bump, so check both).
-        // Not the start of ZEROPAGE -- a user module declaring zero-page
-        // storage can link ahead of cc65's zeropage.o and push c_sp up, which
-        // silently offsets every local variable address derived from it.
+        // The cc65 software stack pointer is "c_sp" ("sp" in older cc65; the
+        // rename came without a version bump). Not the start of ZEROPAGE -- a
+        // user module can link ahead of cc65's zeropage.o and push c_sp up.
         let zeropageStackPointerAddr: number | undefined;
         for (const sym of data.syms) {
             if (sym.type === 'lab' && sym.val !== undefined && (sym.name === 'c_sp' || sym.name === 'sp')) {
@@ -310,14 +306,10 @@ export class Cc65DebugInfo {
                 if (!span || span.address === undefined) { linesMissingSpan++; continue; }
 
                 // EXEHDR/DIRECTORY/NULL are file-layout segments, not real CPU
-                // addresses -- the linker config places their MEMORY area at
-                // start=$0000 (same as ZEROPAGE/EXTZP) because they are written
-                // to the start of the ROM file, never mapped into 6502 address
-                // space at runtime. Their line records therefore alias real
-                // zero-page variable addresses (e.g. address 0 both a ZP var
-                // and a DIRECTORY byte), which made zero-page symbols resolve
-                // to lynxhdr.s/directory.s. Skip them here as they already are
-                // for overlay detection above.
+                // addresses -- their MEMORY area starts at $0000 (same as
+                // ZEROPAGE/EXTZP) since they're written to the ROM file, never
+                // mapped at runtime. Their line records would otherwise alias
+                // real zero-page variables. Skip, same as overlay detection above.
                 const spanSeg = segMap.get(span.seg);
                 if (spanSeg && (spanSeg.name === 'EXEHDR' || spanSeg.name === 'DIRECTORY' || spanSeg.name === 'NULL')) continue;
 
@@ -333,15 +325,11 @@ export class Cc65DebugInfo {
                     segmentId: span.seg,
                 };
 
-                // Prefer high-level C source lines over assembly. In cc65 .dbg
-                // files, line type 1 is the C source line; type 0/undefined is
-                // assembly and type 2 is a macro. Multiple line records (C plus
-                // generated/runtime assembly such as bootldr.s) can map to the
-                // same address; the assembly ones often point at cc65 runtime
-                // files that are not on the user's disk. A C mapping must never
-                // be overwritten by an assembly mapping, or the address resolves
-                // to a missing file and reports as unmapped. This preference is
-                // applied per segment so overlapping overlays keep both entries.
+                // Prefer C source lines (type 1) over assembly (type 0/undefined)
+                // or macro (type 2). A C mapping must never be overwritten by an
+                // assembly one, or the address resolves to a runtime file not on
+                // disk and reports as unmapped. Applied per segment so
+                // overlapping overlays keep both entries.
                 const isCLine = (line.type === 1);
                 const key = `${addr}:${span.seg}`;
                 let candidates = addressToSource.get(addr);
@@ -436,27 +424,19 @@ export class Cc65DebugInfo {
         }
 
         // Backfill a declaration location for data symbols (zero-page/BSS/DATA
-        // globals) that have no code-derived entry in addressToSource -- an
-        // uninitialized global generates no instructions, so the line-record
-        // loop above never sees its declaration. cc65 does record it via the
-        // sym's `def` attribute, pointing at a `line`, but for these data-only
-        // declarations that line's file is the ephemeral intermediate assembly
-        // file cc65 generated for the translation unit (e.g.
-        // "CMakeFiles/x.dir/global.c.17712.0.s"), not the real .c file, and
-        // its line number belongs to that generated file, not the source --
-        // it is not on disk and the number would not correspond to anything
-        // meaningful. Recover only the real source file by matching the
-        // intermediate file's embedded name against the known file table; the
-        // line is left unresolved (0) rather than reporting a wrong one.
+        // globals) with no code-derived entry: an uninitialized global emits
+        // no instructions, so the line-record loop above never sees it. cc65's
+        // `def` attribute points at a line in the ephemeral intermediate
+        // assembly file (e.g. "CMakeFiles/x.dir/global.c.17712.0.s"), not the
+        // real .c file, so recover the real source by matching that file's
+        // embedded name against the known file table; leave the line
+        // unresolved (0) rather than report a wrong one.
         for (const sym of data.syms) {
             if (sym.type !== 'lab' || sym.val === undefined || sym.seg === undefined || sym.def === undefined) continue;
 
-            // findSourceForAddress matches candidates by address only (no
-            // caller-side segment context), so a label backfilled here from
-            // EXEHDR/DIRECTORY would compete with a real ZEROPAGE/EXTZP
-            // candidate at the same aliased address (see the exclusion above,
-            // in the line-processing loop) and could win the tie by array
-            // order. Keep these segments out of addressToSource entirely.
+            // findSourceForAddress matches by address only, so a label from
+            // EXEHDR/DIRECTORY could compete with a real ZEROPAGE/EXTZP
+            // candidate at the same aliased address; keep these out entirely.
             const symSeg = segMap.get(sym.seg);
             if (symSeg && (symSeg.name === 'EXEHDR' || symSeg.name === 'DIRECTORY' || symSeg.name === 'NULL')) continue;
 
@@ -508,10 +488,8 @@ export class Cc65DebugInfo {
 
         // First pass: identify function scopes
         const scopeFunctionMap = new Map<number, { address: number; endAddress: number; segmentId: number }>();
-        // Segments that host at least one function symbol are code segments.
-        // This is the only name-independent signal cc65 debug info gives us for
-        // code vs rodata (both are type=ro), so overlay/segment kind is derived
-        // from it.
+        // Segments hosting a function symbol are code segments -- the only
+        // name-independent signal for code vs rodata (both are type=ro).
         const codeSegmentIds = new Set<number>();
         let functionsMissingSize = 0;
 
@@ -520,11 +498,9 @@ export class Cc65DebugInfo {
                 const sym = data.syms[csym.sym];
                 const scope = data.scopes[csym.scope];
                 if (sym && scope && sym.val !== undefined) {
-                    // Function address range comes from the symbol (val + size),
-                    // not the scope's first span: a function scope can list
-                    // multiple spans and span[0] may be a non-code span (e.g. a
-                    // string constant in RODATA), which would register the
-                    // function at a bogus address and break locals/stack lookups.
+                    // Address range comes from the symbol, not the scope's
+                    // first span -- span[0] can be a non-code span (e.g. a
+                    // RODATA string), which would give a bogus address.
                     const size = sym.size ?? scope.size;
                     if (size === undefined) { functionsMissingSize++; continue; }
                     const address = sym.val;
@@ -597,12 +573,11 @@ export class Cc65DebugInfo {
             }
 
             if (csym.sc === 'reg' || csym.sc === 'static') {
-                // sc=reg lives in the shared regbank; sc=static is a genuine
-                // global label the compiler synthesized for the function-local
-                // static. Both bypass the cc65 software stack entirely, so
-                // resolve straight to an absolute address via the same
-                // imp/exp-chain-following helper (registerAddress is reused as
-                // "resolved absolute address", not literally "in a register").
+                // sc=reg lives in the shared regbank; sc=static is a compiler-
+                // synthesized global label for a function-local static. Both
+                // bypass the software stack, resolving straight to an absolute
+                // address (registerAddress here means "resolved absolute
+                // address", not literally "in a register").
                 const base = csym.sym !== undefined
                     ? Cc65DebugInfo.resolveSymAddress(data.syms[csym.sym], data.syms)
                     : undefined;
@@ -719,13 +694,9 @@ export class Cc65DebugInfo {
         return [];
     }
 
-    // cc65's C-compiler backend names its own synthetic branch targets and
-    // anonymous storage (string literals, aggregate init templates, function-
-    // local statics) with an internal counter: one uppercase letter followed
-    // by exactly 4 hex digits, e.g. "L0002", "M000A". Real symbols are always
-    // either underscore-mangled or absent from this shape entirely, so this
-    // pattern reliably flags compiler-generated labels without false
-    // positives on hand-written asm names.
+    // cc65 names synthetic branch targets and anonymous storage with an
+    // internal counter: one uppercase letter + 4 hex digits, e.g. "L0002".
+    // Real symbols are underscore-mangled or don't match this shape.
     private static isCompilerGeneratedLabel(name: string): boolean {
         return /^[A-Z][0-9A-F]{4}$/.test(name);
     }

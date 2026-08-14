@@ -11,16 +11,11 @@ export class DebugInfo {
     private activeOverlaySegmentId: number | null = null;
     private activeOverlayName: string | null = null;
     private sourceResolveCache = new Map<string, string | null>();
-    // Memoize address->location lookups. findSourceForAddress is called once per
-    // single-instruction step during source-line stepping and once per row when
-    // building the Symbol Table panel, so without this it dominates when
-    // stepping through unmapped code or rendering a large symbol list (null
-    // results are cached too). Invalidated on overlay change, the only thing
-    // that alters which mappings resolve.
+    // Memoizes findSourceForAddress, which runs per step and per symbol-table
+    // row; cleared on overlay change since that's what alters resolution.
     private addressLocationCache = new Map<number, SourceLocation | null>();
-    // Lazily-built ascending address list for binary search in
-    // findSourceForAddress. Never invalidated: addressToSource itself is fixed
-    // once parsed, only which mappings resolve changes with the active overlay.
+    // Lazily-built ascending address list for binary search; never
+    // invalidated since addressToSource itself doesn't change after parsing.
     private sortedAddresses: number[] | undefined;
 
     private constructor(data: DebugInfoData, sourceRoots: string[]) {
@@ -62,11 +57,9 @@ export class DebugInfo {
         return new DebugInfo(data, roots);
     }
 
-    // Common cc65 debug-file naming conventions relative to a rom path: game.dbg,
-    // game.lnx.dbg, game.sym, game.lnx.sym. Shared by launch-config resolution
-    // (extension.ts) and the no-session workspace scan (workspace_debug_info.ts)
-    // so both pick the same file. Returns the full candidate list too, so callers
-    // can log what was tried when nothing is found.
+    // Common cc65 debug-file naming conventions relative to a rom path.
+    // Shared by launch-config resolution and the no-session workspace scan so
+    // both pick the same file; returns all candidates so callers can log them.
     static findCandidatePath(rom: string): { found?: string; candidates: string[] } {
         const baseName = rom.replace(/\.[^.]+$/, '');
         const candidates = [
@@ -78,12 +71,8 @@ export class DebugInfo {
         return { found: candidates.find(c => fs.existsSync(c)), candidates };
     }
 
-    // Decides which debug file to use for a rom: an explicit debugFile is
-    // trusted as-is (even if missing on disk -- load() then just returns null,
-    // the same graceful "no debug info" outcome as a session with none
-    // configured); auto-detection only kicks in when none was given. Shared by
-    // both a real debug session launch (extension.ts) and the no-session
-    // workspace scan (workspace_debug_info.ts) so they agree on the outcome.
+    // An explicit debugFile is trusted as-is (even if missing -- load() then
+    // just returns null); auto-detection only kicks in when none was given.
     static resolveDebugFile(rom: string, explicitDebugFile: string | undefined): { path?: string; candidates?: string[] } {
         if (explicitDebugFile) {
             return { path: explicitDebugFile };
@@ -103,21 +92,12 @@ export class DebugInfo {
         return best;
     }
 
-    // Find the nearest mapping (largest start address <= target) whose range
-    // covers the target, whose segment is active, and whose source file
-    // actually exists on disk. Skipping unresolvable mappings is essential:
-    // cc65 emits runtime assembly mappings (e.g. bootldr.s, not on the user's
-    // disk) that share addresses with C statements. If such a mapping shadowed
-    // the enclosing C line, the address would report as unmapped during
-    // stepping. Each address holds one candidate per segment (overlays share
-    // addresses); the active-segment filter selects the candidate for the
-    // currently mapped overlay.
-    //
-    // Binary search finds the starting point (largest address <= target), then
-    // walks backward through progressively smaller addresses. Addresses are
-    // visited in decreasing order this way, so the first candidate that
-    // resolves is necessarily the nearest valid mapping -- same result as a
-    // full scan, without scanning addresses that can't be nearer.
+    // Finds the nearest mapping (largest address <= target) whose segment is
+    // active and whose source file exists on disk. Unresolvable mappings are
+    // skipped because cc65 emits runtime assembly mappings (e.g. bootldr.s,
+    // not on disk) that share addresses with C statements and would otherwise
+    // shadow them. Binary search locates the starting address, then walks
+    // backward so the first resolvable candidate is necessarily the nearest.
     private computeSourceForAddress(address: number): SourceLocation | null {
         const sorted = this.getSortedAddresses();
 
@@ -196,10 +176,9 @@ export class DebugInfo {
         return this.data.addressToSource;
     }
 
-    // Overlay-aware: cc65 overlay segments share the same runtime address
-    // range (only one is resident at a time), so a plain address-range filter
-    // would also match locals from a same-address function in an unselected,
-    // non-resident overlay. See setActiveOverlay/isSegmentActive.
+    // Overlay-aware: overlay segments share the same runtime address range,
+    // so a plain range filter would also match a non-resident overlay's
+    // locals. See setActiveOverlay/isSegmentActive.
     getLocalsForAddress(pc: number): LocalVariable[] {
         return this.data.locals.filter(
             l => pc >= l.functionAddress && pc <= l.functionEndAddress && this.isSegmentActive(l.segmentId)
@@ -342,17 +321,9 @@ export class DebugInfo {
         return resolved === loc.source ? loc : { ...loc, source: resolved };
     }
 
-    // Resolve a source path recorded in the debug info to an existing on-disk
-    // path. cc65 .dbg files store source file names inconsistently: some are
-    // absolute (possibly from another machine or a moved project), others are
-    // relative to an arbitrary build directory. Handle both by:
-    //   1. Using an absolute path as-is when it exists.
-    //   2. Resolving a relative path against each source root.
-    //   3. Falling back to matching progressively shorter path tails (most
-    //      specific first) under each source root, which relocates absolute
-    //      paths from another machine and relative paths whose leading segments
-    //      differ from the local layout.
-    // Returns null when no existing file can be found (never a bad path).
+    // cc65 .dbg files store source paths inconsistently -- absolute (maybe
+    // from another machine) or relative to an arbitrary build directory.
+    // computeSourcePath tries both, then tail-matching, before giving up.
     private resolveSourcePath(source: string): string | null {
         if (!source) {
             return null;

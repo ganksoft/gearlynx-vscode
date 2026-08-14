@@ -110,10 +110,8 @@ export interface DebugInfoData {
     fileMtimes: Map<string, number>;
 }
 
-// Structural classification derived from debug info, independent of segment
-// name: a segment is 'code' when it hosts at least one function symbol,
-// otherwise 'data' (rodata/bss/data all collapse to 'data' -- cc65 debug info
-// only distinguishes read-only vs read-write, not code vs rodata).
+// A segment is 'code' when it hosts at least one function symbol, otherwise
+// 'data' -- cc65 debug info only distinguishes read-only vs read-write.
 export type SegmentKind = 'code' | 'data';
 
 export interface SegmentInfo {

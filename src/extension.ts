@@ -16,12 +16,9 @@ let overlayTreeProvider: OverlayTreeProvider | undefined;
 let traceOutputChannel: vscode.OutputChannel | undefined;
 let workspaceDebugInfoProvider: WorkspaceDebugInfoProvider | undefined;
 
-// A live session takes precedence, even if it has no debug file loaded --
-// falling through to the workspace scan in that case would show an unrelated
-// launch.json config's symbols as if they belonged to the active session.
-// The workspace-scanned debug info (from launch.json, no session required)
-// only applies when there is no session at all, so panels work while writing
-// code, not just while debugging.
+// A live session takes precedence, even with no debug file loaded -- falling
+// through to the workspace scan would show an unrelated launch.json config's
+// symbols as if they belonged to the active session.
 function getEffectiveDebugInfo(): DebugInfo | null {
     if (activeSession) {
         return activeSession.getDebugInfo();
@@ -43,11 +40,9 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.debug.registerDebugConfigurationProvider('gearlynx', provider)
     );
 
-    // Register persistent screen view in panel. Views in gearlynxDebugPanel
-    // that should work standalone (no debug session) each need their own
-    // "onView:<viewId>" entry in package.json's activationEvents -- there is
-    // no "any view in this container" wildcard, so a new view without one
-    // silently never activates the extension on first open.
+    // Each standalone view in gearlynxDebugPanel needs its own
+    // "onView:<viewId>" in package.json's activationEvents -- there is no
+    // "any view in this container" wildcard.
     screenViewProvider = new ScreenViewProvider(context.extensionUri);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ScreenViewProvider.viewType, screenViewProvider, {
@@ -233,10 +228,8 @@ function selectOverlay(name: string | null): void {
     }
 }
 
-// Refresh all debug-info-derived UI: the "project detected" and "has overlays"
-// context keys, the overlay tree, and the Symbols panel. Called whenever the
-// effective debug info could have changed -- session start/end or a workspace
-// rescan (rebuild, launch.json edit).
+// Refresh all debug-info-derived UI. Called whenever the effective debug
+// info could have changed -- session start/end or a workspace rescan.
 function syncDebugInfoUi(): void {
     const debugInfo = getEffectiveDebugInfo();
     void vscode.commands.executeCommand('setContext', 'gearlynxDebug.projectDetected', debugInfo !== null);
