@@ -86,6 +86,7 @@ export class SymDebugInfo {
             zeropageStackPointerAddr: spSymbol ? spSymbol.address : 0,
             overlayGroups: [],
             segments: [],
+            fileMtimes: new Map(),
         };
     }
 }

@@ -105,6 +105,7 @@ export interface DebugInfoData {
     zeropageStackPointerAddr: number;
     overlayGroups: OverlayGroup[];
     segments: SegmentInfo[];
+    fileMtimes: Map<string, number>;
 }
 
 // Structural classification derived from debug info, independent of segment

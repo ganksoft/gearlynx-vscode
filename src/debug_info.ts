@@ -226,6 +226,25 @@ export class DebugInfo {
         return this.data.segments;
     }
 
+    // 2-second tolerance absorbs whole-second rounding in cc65's recorded
+    // mtime vs fs.Stats.mtimeMs's sub-second precision.
+    checkSourceStaleness(): { source: string; dbgMtimeMs: number; fileMtimeMs: number }[] {
+        const stale: { source: string; dbgMtimeMs: number; fileMtimeMs: number }[] = [];
+        for (const [source, dbgMtimeMs] of this.data.fileMtimes) {
+            const resolved = this.resolveSourcePath(source);
+            if (!resolved) continue;
+            try {
+                const fileMtimeMs = fs.statSync(resolved).mtimeMs;
+                if (fileMtimeMs - dbgMtimeMs > 2000) {
+                    stale.push({ source: resolved, dbgMtimeMs, fileMtimeMs });
+                }
+            } catch {
+                // Source vanished since resolveSourcePath found it -- ignore.
+            }
+        }
+        return stale;
+    }
+
     // -- Overlay management --
 
     getOverlayGroups(): OverlayGroup[] {

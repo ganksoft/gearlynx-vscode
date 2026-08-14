@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Launch now warns (toast, Debug Console, and Output panel) when a source file has changed since the `.dbg` was built, so stepping/breakpoints against a stale build are easier to spot.
+
 ### Fixed
 
 - Locals pane now resolves cc65 `static` local variables (`sc=static`), which were previously dropped instead of shown.

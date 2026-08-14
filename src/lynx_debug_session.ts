@@ -187,6 +187,21 @@ export class LynxDebugSession extends LoggingDebugSession {
             if (args.debugFile) {
                 logInfo(`Loading debug info: ${args.debugFile}`);
                 this.debugInfo = DebugInfo.load(args.debugFile, args.sourceRoots);
+                if (this.debugInfo) {
+                    const stale = this.debugInfo.checkSourceStaleness();
+                    if (stale.length > 0) {
+                        const names = stale.map(s => path.basename(s.source)).join(', ');
+                        const msg = `${stale.length} source file(s) changed since the debug info was built: ${names}. ` +
+                            'Breakpoints and stepping may not match the running ROM -- rebuild before debugging.';
+                        this.sendEvent(new OutputEvent(msg + '\n', 'console'));
+                        logWarn(msg);
+                        // Keep the toast short -- long messages get truncated with an
+                        // expand chevron. Full detail is in the Debug Console/Output.
+                        void vscode.window.showWarningMessage(
+                            `${stale.length} source file(s) changed since the debug info was built. ` +
+                            'Rebuild before debugging -- see the Debug Console for details.');
+                    }
+                }
             } else {
                 logInfo('No debug file configured; source-level debugging will be unavailable.');
             }

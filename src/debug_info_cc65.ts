@@ -6,6 +6,7 @@ import { logWarn } from './log';
 interface DbgFile {
     id: number;
     name: string;
+    mtime?: number;
 }
 
 interface DbgSegment {
@@ -129,7 +130,7 @@ export class Cc65DebugInfo {
 
             switch (parsed.key) {
                 case 'file':
-                    data.files.push({ id: num(a, 'id'), name: str(a, 'name') });
+                    data.files.push({ id: num(a, 'id'), name: str(a, 'name'), mtime: optNum(a, 'mtime') });
                     break;
                 case 'seg':
                     data.segs.push({ id: num(a, 'id'), name: str(a, 'name'), start: num(a, 'start'), size: num(a, 'size'), type: optStr(a, 'type') });
@@ -623,7 +624,15 @@ export class Cc65DebugInfo {
                 `${linesMissingSpan} referenced an unresolved span, ${functionsMissingSize} function symbol(s) had no size.`);
         }
 
-        return { addressToSource, sourceToAddresses, symbols, functions, locals, zeropageStackPointerAddr, overlayGroups, segments };
+        // mtime is a Unix epoch in seconds (cc65 MTime is a C time_t); convert
+        // to milliseconds to match Date/fs.Stats.mtimeMs.
+        const fileMtimes = new Map<string, number>();
+        for (const file of data.files) {
+            if (file.mtime === undefined || Cc65DebugInfo.isIntermediateFile(file.name)) continue;
+            fileMtimes.set(file.name.replace(/\\/g, '/'), file.mtime * 1000);
+        }
+
+        return { addressToSource, sourceToAddresses, symbols, functions, locals, zeropageStackPointerAddr, overlayGroups, segments, fileMtimes };
     }
 
     private static parseLine(line: string): { key: string; attrs: Map<string, unknown> } | null {
