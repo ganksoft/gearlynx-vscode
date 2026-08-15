@@ -162,6 +162,21 @@
                 "type": "boolean",
                 "description": "Log each micro-step decision to the Debug Console for diagnosing source-line stepping.",
                 "default": false
+              },
+              "buildTask": {
+                "type": "string",
+                "description": "Task to run when sources are newer than the debug info. Uses the workspace's default build task if omitted."
+              },
+              "staleSourceAction": {
+                "type": "string",
+                "enum": ["prompt", "build", "warn", "ignore"],
+                "enumDescriptions": [
+                  "Ask whether to build before continuing the launch.",
+                  "Build and continue the launch without asking.",
+                  "Warn only; never build.",
+                  "Say nothing."
+                ],
+                "description": "What to do when a source file is newer than the debug info. Overrides the gearlynxDebug.staleSourceAction setting for this configuration."
               }
             }
           },
@@ -233,6 +248,18 @@
           "type": "number",
           "default": 6502,
           "description": "Default debug monitor port"
+        },
+        "gearlynxDebug.staleSourceAction": {
+          "type": "string",
+          "enum": ["prompt", "build", "warn", "ignore"],
+          "enumDescriptions": [
+            "Ask whether to build before continuing the launch.",
+            "Build and continue the launch without asking.",
+            "Warn only; never build.",
+            "Say nothing."
+          ],
+          "default": "prompt",
+          "description": "What to do at launch when a source file is newer than the debug info. Building runs the launch config's \"buildTask\", or the workspace's default build task."
         },
         "gearlynxDebug.keymap.up": {
           "type": "string",

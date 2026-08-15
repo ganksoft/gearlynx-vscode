@@ -23,6 +23,7 @@ import { CpuRegisters, DebugSymbol } from './types';
 import { expandTilde } from './paths';
 import { hex, formatByteWord } from './format';
 import { logInfo, logWarn, logError } from './log';
+import { resolveBuildTask, runBuildTask, buildTaskLabel } from './build_task';
 
 const THREAD_ID = 1;
 
@@ -49,6 +50,8 @@ function hwRegister(entry: Record<string, unknown>, name: string): string {
     return '--';
 }
 
+type StaleSourceAction = 'prompt' | 'build' | 'warn' | 'ignore';
+
 interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     rom: string;
     debugFile?: string;
@@ -58,6 +61,11 @@ interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     sourceRoots?: string[];
     headless?: boolean;
     traceSteps?: boolean;
+    buildTask?: string;
+    staleSourceAction?: StaleSourceAction;
+    // Not ours. VS Code forwards the whole launch config, and the stale-source
+    // handling needs to know whether a build already ran.
+    preLaunchTask?: string;
 }
 
 interface AttachRequestArguments extends DebugProtocol.AttachRequestArguments {
@@ -222,6 +230,101 @@ export class LynxDebugSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
+    // Every stale-source message goes to both the Debug Console and the
+    // extension log, so it is there whichever one the user is watching.
+    private reportStale(message: string, level: 'info' | 'warn' = 'warn'): void {
+        this.sendEvent(new OutputEvent(message + '\n', 'console'));
+        if (level === 'warn') logWarn(message); else logInfo(message);
+    }
+
+    // Reports sources newer than the debug info and, per
+    // gearlynxDebug.staleSourceAction, offers to run a build task before the
+    // emulator starts. Returns false only when the user cancelled the launch.
+    private async handleStaleSources(args: LaunchRequestArguments, debugInfo: DebugInfo): Promise<boolean> {
+        // The launch config wins so a single configuration can differ from the
+        // workspace-wide setting.
+        const action = args.staleSourceAction ?? vscode.workspace.getConfiguration('gearlynxDebug')
+            .get<StaleSourceAction>('staleSourceAction', 'prompt');
+        if (action === 'ignore') return true;
+
+        const stale = debugInfo.checkSourceStaleness();
+        if (stale.length === 0) return true;
+
+        const names = stale.map(s => path.basename(s.source)).join(', ');
+        const count = `${stale.length} source file(s) changed since the debug info was built`;
+        // Nothing is reported yet: whether this matters depends on which branch
+        // below runs, and claiming a mismatch we are about to fix is misleading.
+        const MISMATCH = 'Breakpoints and stepping may not match the running ROM.';
+
+        // A preLaunchTask has already run by the time the adapter starts, so
+        // building again here would only repeat it.
+        const canBuild = action !== 'warn' && !args.preLaunchTask;
+        const task = canBuild ? await resolveBuildTask(args.buildTask) : undefined;
+
+        if (!task) {
+            this.reportStale(`${count}: ${names}. ${MISMATCH} Rebuild before debugging.`);
+            if (canBuild) {
+                logWarn(args.buildTask
+                    ? `Cannot rebuild: buildTask "${args.buildTask}" is not a task in this workspace.`
+                    : 'Cannot rebuild: no default build task is configured. Set one in tasks.json, '
+                      + 'or name a task in the launch config\'s "buildTask".');
+            }
+            // Keep the toast short. Long messages get truncated behind an expand
+            // chevron, and the full detail is in the Debug Console already.
+            void vscode.window.showWarningMessage(`${count}. Rebuild before debugging, see the Debug Console for details.`);
+            return true;
+        }
+
+        const label = buildTaskLabel(task);
+
+        if (action === 'prompt') {
+            const choice = await vscode.window.showWarningMessage(
+                `${count}.`,
+                { modal: true, detail: `${names}\n\n${MISMATCH}` },
+                `Build (${label})`, 'Debug Anyway');
+            // The modal supplies its own Cancel. That and Escape return undefined.
+            if (choice === undefined) {
+                this.reportStale(`${count}. Launch cancelled.`, 'info');
+                return false;
+            }
+            if (choice === 'Debug Anyway') {
+                this.reportStale(`${count}: ${names}. Continuing without a build. ${MISMATCH}`);
+                return true;
+            }
+        }
+
+        this.reportStale(`${count}: ${names}. Running build task "${label}" first.`, 'info');
+
+        if (!await runBuildTask(task)) {
+            this.reportStale(`Build task "${label}" failed. The ROM does not match your sources.`);
+            const choice = await vscode.window.showErrorMessage(
+                `Build task "${label}" failed.`,
+                { modal: true, detail: 'The ROM does not match your sources.' },
+                'Debug Anyway');
+            return choice === 'Debug Anyway';
+        }
+
+        // Pick up what the build just produced, before the emulator starts.
+        let current = debugInfo;
+        if (args.debugFile) {
+            const reloaded = DebugInfo.load(args.debugFile, args.sourceRoots);
+            if (reloaded) {
+                this.debugInfo = reloaded;
+                current = reloaded;
+            }
+        }
+
+        const stillStale = current.checkSourceStaleness();
+        if (stillStale.length > 0) {
+            this.reportStale(
+                `Still out of date after the build: ${stillStale.map(s => path.basename(s.source)).join(', ')}. `
+                + `The build task may not cover every source file. ${MISMATCH}`);
+        } else {
+            this.reportStale('Build finished. Debug info is up to date.', 'info');
+        }
+        return true;
+    }
+
     protected async launchRequest(
         response: DebugProtocol.LaunchResponse,
         args: LaunchRequestArguments
@@ -239,20 +342,11 @@ export class LynxDebugSession extends LoggingDebugSession {
             if (args.debugFile) {
                 logInfo(`Loading debug info: ${args.debugFile}`);
                 this.debugInfo = DebugInfo.load(args.debugFile, args.sourceRoots);
-                if (this.debugInfo) {
-                    const stale = this.debugInfo.checkSourceStaleness();
-                    if (stale.length > 0) {
-                        const names = stale.map(s => path.basename(s.source)).join(', ');
-                        const msg = `${stale.length} source file(s) changed since the debug info was built: ${names}. ` +
-                            'Breakpoints and stepping may not match the running ROM -- rebuild before debugging.';
-                        this.sendEvent(new OutputEvent(msg + '\n', 'console'));
-                        logWarn(msg);
-                        // Keep the toast short -- long messages get truncated with an
-                        // expand chevron. Full detail is in the Debug Console/Output.
-                        void vscode.window.showWarningMessage(
-                            `${stale.length} source file(s) changed since the debug info was built. ` +
-                            'Rebuild before debugging -- see the Debug Console for details.');
-                    }
+                if (this.debugInfo && !await this.handleStaleSources(args, this.debugInfo)) {
+                    // Cancelled at the stale-source prompt, before anything started.
+                    this.sendResponse(response);
+                    this.sendEvent(new TerminatedEvent());
+                    return;
                 }
             } else {
                 logInfo('No debug file configured; source-level debugging will be unavailable.');

@@ -181,7 +181,8 @@ Then press F5 to start debugging with that configuration.
   "gearlynxPath": "/path/to/gearlynx",
   "sourceRoots": ["${workspaceFolder}/src"],
   "headless": false,
-  "traceSteps": false
+  "traceSteps": false,
+  "buildTask": "build"
 }
 ```
 
@@ -195,6 +196,8 @@ Then press F5 to start debugging with that configuration.
 | `sourceRoots` | No | `[]` | Extra directories to search for source files |
 | `headless` | No | `false` | Run Gearlynx without GUI (use the Screen Viewer in VSCode instead) |
 | `traceSteps` | No | `false` | Log source-line stepping decisions to the Debug Console |
+| `buildTask` | No | default build task | Task to run when sources are out of date at launch |
+| `staleSourceAction` | No | from settings | Overrides `gearlynxDebug.staleSourceAction` for this configuration |
 
 ### Attach (connects to running Gearlynx)
 
@@ -239,6 +242,25 @@ All settings are also editable in the VSCode Settings UI under **Extensions -> G
 |---------|---------|-------------|
 | `gearlynxDebug.gearlynxPath` | `""` | Path to Gearlynx executable |
 | `gearlynxDebug.defaultPort` | `6502` | Default debug monitor TCP port |
+| `gearlynxDebug.staleSourceAction` | `prompt` | What to do when a source file is newer than the debug info: `prompt`, `build`, `warn`, or `ignore` |
+
+### Out-of-date sources
+
+At launch the extension compares each source file's timestamp against the one
+recorded in the `.dbg`. If a file is newer, breakpoints and stepping may not
+match the running ROM, so by default it stops and asks whether to build first.
+
+Building runs a VSCode task: the one named in the launch config's `buildTask`,
+or the workspace's default build task (`"group": { "kind": "build", "isDefault":
+true }` in `tasks.json`). If neither exists, the launch falls back to a warning.
+Set `gearlynxDebug.staleSourceAction` to `build` to skip the prompt, `warn` to
+only report it, or `ignore` to say nothing. A launch configuration can override
+the setting with its own `staleSourceAction`, so one configuration can build
+automatically while another only warns.
+
+If the launch config already has a `preLaunchTask`, the extension only warns.
+That task has already run by the time the debugger starts, so building again
+would just repeat it.
 
 ### Keymap Settings
 
