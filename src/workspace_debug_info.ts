@@ -4,6 +4,13 @@ import { DebugInfo } from './debug_info';
 import { expandTilde } from './paths';
 import { logInfo, logWarn } from './log';
 
+// A file event of any kind means the same thing here: re-resolve.
+function onAnyChange(watcher: vscode.FileSystemWatcher, fn: () => void): void {
+    watcher.onDidChange(fn);
+    watcher.onDidCreate(fn);
+    watcher.onDidDelete(fn);
+}
+
 interface RomConfig {
     rom: string;
     debugFile?: string;
@@ -34,9 +41,7 @@ export class WorkspaceDebugInfoProvider implements vscode.Disposable {
 
     constructor() {
         this.launchWatcher = vscode.workspace.createFileSystemWatcher('**/.vscode/launch.json');
-        this.launchWatcher.onDidChange(() => this.scheduleRefresh(() => this.refreshFromLaunchConfig()));
-        this.launchWatcher.onDidCreate(() => this.scheduleRefresh(() => this.refreshFromLaunchConfig()));
-        this.launchWatcher.onDidDelete(() => this.scheduleRefresh(() => this.refreshFromLaunchConfig()));
+        onAnyChange(this.launchWatcher, () => this.scheduleRefresh(() => this.refreshFromLaunchConfig()));
         this.refreshFromLaunchConfig();
     }
 
@@ -95,9 +100,7 @@ export class WorkspaceDebugInfoProvider implements vscode.Disposable {
 
         const pattern = new vscode.RelativePattern(path.dirname(newPath), path.basename(newPath));
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-        this.fileWatcher.onDidChange(() => this.scheduleRefresh(() => this.reloadDebugInfo()));
-        this.fileWatcher.onDidCreate(() => this.scheduleRefresh(() => this.reloadDebugInfo()));
-        this.fileWatcher.onDidDelete(() => this.scheduleRefresh(() => this.reloadDebugInfo()));
+        onAnyChange(this.fileWatcher, () => this.scheduleRefresh(() => this.reloadDebugInfo()));
     }
 
     // Unlike LynxConfigurationProvider (extension.ts), which sees a config

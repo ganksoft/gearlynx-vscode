@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Globals and Zero Page panes now batch their memory reads, and register/hardware state is fetched once per stop, cutting hundreds of emulator round-trips per stop down to a handful.
+- Internal cleanup pass over `src/`: removed dead fields and code paths, and factored out shared hex/memory-read/breakpoint-clear helpers. No behavior change.
+
+### Fixed
+
+- The source-root list no longer grows on every debug-file rebuild (each reload prepended another copy of the debug file's directory), which progressively slowed source-path resolution.
+
 ## [0.2.8] - 2026-08-13
 
 ### Added

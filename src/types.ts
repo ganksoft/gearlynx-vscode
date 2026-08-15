@@ -20,6 +20,9 @@ export interface MonitorEvent {
 
 export type MonitorMessage = MonitorResponse | MonitorEvent;
 
+// The wire-payload interfaces below mirror the debug-monitor protocol (see
+// PROTOCOL.md in the Gearlynx repo); fields the extension never reads are
+// kept deliberately so this stays a full description of the contract.
 export interface CpuRegisters {
     pc: number;
     a: number;
@@ -63,6 +66,10 @@ export interface SourceLocation {
     address: number;
     addressEnd: number;
     segmentId: number;
+    // True when this came from a C source line rather than assembly; a C
+    // mapping must never be overwritten by an assembly one (see the cc65
+    // parser), or the address resolves to a runtime file not on disk.
+    isCLine?: boolean;
 }
 
 export interface DebugSymbol {
@@ -79,17 +86,13 @@ export interface DebugFunction {
     name: string;
     address: number;
     addressEnd: number;
-    source: string;
-    line: number;
     segment: string;
     segmentId: number;
     isLibrary: boolean;
-    libraryName?: string;
 }
 
 export interface LocalVariable {
     name: string;
-    scopeId: number;
     functionAddress: number;
     functionEndAddress: number;
     stackOffset: number;
@@ -119,7 +122,17 @@ export interface SegmentInfo {
     start: number;
     size: number;
     type: string;
-    kind: SegmentKind;
+}
+
+// EXEHDR/DIRECTORY/NULL describe the ROM file layout, not CPU address space:
+// their MEMORY area starts at $0000 (same as ZEROPAGE/EXTZP), so leaving them
+// in would alias real zero-page addresses.
+export function isLayoutOnlySegment(name: string): boolean {
+    return name === 'EXEHDR' || name === 'DIRECTORY' || name === 'NULL';
+}
+
+export function isZeroPageSegment(name: string): boolean {
+    return name === 'ZEROPAGE' || name === 'EXTZP';
 }
 
 export interface OverlayGroup {

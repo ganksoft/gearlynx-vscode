@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { SegmentInfo } from './types';
+import { SegmentInfo, isLayoutOnlySegment, isZeroPageSegment } from './types';
 
 export class MemoryMapPanel {
     public static readonly viewType = 'gearlynxDebug.memoryMap';
@@ -36,7 +36,7 @@ export class MemoryMapPanel {
 
     private getHtml(segments: SegmentInfo[]): string {
         function getColor(name: string, type: string): string {
-            if (name === 'ZEROPAGE' || name === 'EXTZP') return '#dcdcaa';
+            if (isZeroPageSegment(name)) return '#dcdcaa';
             if (name.includes('CODE') || name === 'STARTUP' || name === 'LOWCODE' || name === 'ONCE') return '#4ec9b0';
             if (name.includes('RODATA')) return '#569cd6';
             if (name.includes('BSS')) return '#9cdcfe';
@@ -46,12 +46,9 @@ export class MemoryMapPanel {
             return '#808080';
         }
 
-        // Filter out cart-layout-only segments that don't represent CPU address space
-        const excludeNames = new Set(['EXEHDR', 'DIRECTORY', 'NULL']);
-
         const allRegions = [
             ...segments
-                .filter(s => s.size > 0 && !excludeNames.has(s.name))
+                .filter(s => s.size > 0 && !isLayoutOnlySegment(s.name))
                 .map(s => ({
                     name: s.name, start: s.start, size: s.size,
                     end: s.start + s.size - 1, color: getColor(s.name, s.type), hw: false,
@@ -68,7 +65,7 @@ export class MemoryMapPanel {
             if (s.name.includes('CODE') || s.name === 'STARTUP' || s.name === 'LOWCODE' || s.name === 'ONCE') totalCode += s.size;
             else if (s.name.includes('RODATA')) totalRodata += s.size;
             else if (s.name.includes('BSS')) totalBss += s.size;
-            else if (s.name.includes('DATA') || s.name === 'ZEROPAGE' || s.name === 'EXTZP') totalData += s.size;
+            else if (s.name.includes('DATA') || isZeroPageSegment(s.name)) totalData += s.size;
         }
 
         // Serialize regions as JSON for the canvas renderer

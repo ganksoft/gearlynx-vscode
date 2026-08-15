@@ -1,6 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { SourceLocation, DebugSymbol, DebugFunction, LocalVariable, OverlayGroup, SegmentInfo, DebugInfoData } from './types';
+import {
+    SourceLocation, DebugSymbol, DebugFunction, LocalVariable, OverlayGroup, SegmentInfo, DebugInfoData,
+    isLayoutOnlySegment, isZeroPageSegment,
+} from './types';
+import { hex } from './format';
 import { logWarn } from './log';
 
 interface DbgFile {
@@ -198,9 +202,6 @@ export class Cc65DebugInfo {
         // segments share CPU addresses, so a single entry per address would
         // let one overlay's line records clobber another's.
         const addressToSource = new Map<number, SourceLocation[]>();
-        // Tracks which (address, segment) pairs came from a C line, so an
-        // assembly line never overwrites a C line within the same segment.
-        const cLineKeys = new Set<string>();
         const sourceToAddresses = new Map<string, Map<number, number[]>>();
         const symbols: DebugSymbol[] = [];
         const functions: DebugFunction[] = [];
@@ -226,31 +227,29 @@ export class Cc65DebugInfo {
                 }
             }
             logWarn('cc65 debug info: no "c_sp"/"sp" symbol found; ' +
-                `falling back to $${(zeropageStackPointerAddr ?? 0).toString(16).toUpperCase().padStart(4, '0')} ` +
+                `falling back to ${hex(zeropageStackPointerAddr ?? 0, 4)} ` +
                 'for the software stack pointer. Local variables may be wrong.');
             zeropageStackPointerAddr = zeropageStackPointerAddr ?? 0;
+        }
+
+        // Build segment lookup
+        const segMap = new Map<number, DbgSegment>();
+        for (const seg of data.segs) {
+            segMap.set(seg.id, seg);
         }
 
         // Detect overlay groups -- code segments sharing the same start address
         const startAddrToSegs = new Map<number, number[]>();
         for (const seg of data.segs) {
             if (seg.size === 0 || seg.type !== 'ro') continue;
-            if (seg.name === 'NULL' || seg.name === 'EXEHDR' || seg.name === 'DIRECTORY') continue;
-            const existing = startAddrToSegs.get(seg.start);
-            if (existing) {
-                existing.push(seg.id);
-            } else {
-                startAddrToSegs.set(seg.start, [seg.id]);
-            }
+            if (isLayoutOnlySegment(seg.name)) continue;
+            Cc65DebugInfo.getOrCreate(startAddrToSegs, seg.start, () => []).push(seg.id);
         }
 
         const overlayGroups: OverlayGroup[] = [];
         for (const [_addr, segIds] of startAddrToSegs) {
             if (segIds.length > 1) {
-                const names = segIds.map(id => {
-                    const s = data.segs.find(seg => seg.id === id);
-                    return s?.name || `seg${id}`;
-                });
+                const names = segIds.map(id => segMap.get(id)?.name || `seg${id}`);
                 overlayGroups.push({
                     segmentIds: segIds,
                     segmentNames: names,
@@ -260,12 +259,6 @@ export class Cc65DebugInfo {
                     segmentKinds: [],
                 });
             }
-        }
-
-        // Build segment lookup
-        const segMap = new Map<number, DbgSegment>();
-        for (const seg of data.segs) {
-            segMap.set(seg.id, seg);
         }
 
         // Build file lookup
@@ -305,13 +298,10 @@ export class Cc65DebugInfo {
                 const span = spanMap.get(spanId);
                 if (!span || span.address === undefined) { linesMissingSpan++; continue; }
 
-                // EXEHDR/DIRECTORY/NULL are file-layout segments, not real CPU
-                // addresses -- their MEMORY area starts at $0000 (same as
-                // ZEROPAGE/EXTZP) since they're written to the ROM file, never
-                // mapped at runtime. Their line records would otherwise alias
-                // real zero-page variables. Skip, same as overlay detection above.
+                // Layout-only segments would alias real zero-page variables;
+                // skip them here as in overlay detection above.
                 const spanSeg = segMap.get(span.seg);
-                if (spanSeg && (spanSeg.name === 'EXEHDR' || spanSeg.name === 'DIRECTORY' || spanSeg.name === 'NULL')) continue;
+                if (spanSeg && isLayoutOnlySegment(spanSeg.name)) continue;
 
                 const addr = span.address;
                 const addrEnd = addr + span.size - 1;
@@ -323,46 +313,26 @@ export class Cc65DebugInfo {
                     address: addr,
                     addressEnd: addrEnd,
                     segmentId: span.seg,
+                    // C source lines are type 1; assembly is 0/undefined and
+                    // macros are 2.
+                    isCLine: line.type === 1,
                 };
 
-                // Prefer C source lines (type 1) over assembly (type 0/undefined)
-                // or macro (type 2). A C mapping must never be overwritten by an
-                // assembly one, or the address resolves to a runtime file not on
-                // disk and reports as unmapped. Applied per segment so
-                // overlapping overlays keep both entries.
-                const isCLine = (line.type === 1);
-                const key = `${addr}:${span.seg}`;
-                let candidates = addressToSource.get(addr);
-                if (!candidates) {
-                    candidates = [];
-                    addressToSource.set(addr, candidates);
-                }
+                // C always wins (and a later C line replaces an earlier one);
+                // assembly over assembly keeps last-writer behavior. Applied per
+                // segment so overlapping overlays keep both entries.
+                const candidates = Cc65DebugInfo.getOrCreate(addressToSource, addr, () => []);
                 const idx = candidates.findIndex(c => c.segmentId === span.seg);
                 if (idx < 0) {
                     candidates.push(loc);
-                    if (isCLine) cLineKeys.add(key);
-                } else if (isCLine) {
-                    // C always wins (and a later C line replaces an earlier one).
-                    candidates[idx] = loc;
-                    cLineKeys.add(key);
-                } else if (!cLineKeys.has(key)) {
-                    // Assembly over assembly: keep last-writer behavior, but never
-                    // clobber an address already claimed by a C line.
+                } else if (loc.isCLine || !candidates[idx].isCLine) {
                     candidates[idx] = loc;
                 }
 
                 // Source -> addresses map
-                const normalizedSource = sourcePath.toLowerCase();
-                let fileEntries = sourceToAddresses.get(normalizedSource);
-                if (!fileEntries) {
-                    fileEntries = new Map<number, number[]>();
-                    sourceToAddresses.set(normalizedSource, fileEntries);
-                }
-                let lineAddrs = fileEntries.get(line.line);
-                if (!lineAddrs) {
-                    lineAddrs = [];
-                    fileEntries.set(line.line, lineAddrs);
-                }
+                const fileEntries = Cc65DebugInfo.getOrCreate(
+                    sourceToAddresses, sourcePath.toLowerCase(), () => new Map<number, number[]>());
+                const lineAddrs = Cc65DebugInfo.getOrCreate(fileEntries, line.line, () => []);
                 if (!lineAddrs.includes(addr)) {
                     lineAddrs.push(addr);
                 }
@@ -373,7 +343,7 @@ export class Cc65DebugInfo {
         for (const sym of data.syms) {
             if (sym.val !== undefined && sym.type === 'lab') {
                 const seg = sym.seg !== undefined ? segMap.get(sym.seg) : undefined;
-                const isZP = seg ? (seg.name === 'ZEROPAGE' || seg.name === 'EXTZP') : false;
+                const isZP = seg ? isZeroPageSegment(seg.name) : false;
                 const isWritable = !seg || seg.type !== 'ro';
                 // Treat writable ZP/BSS/DATA lab symbols with C-style names as C variables
                 const looksLikeCVar = sym.name.startsWith('_') && !sym.name.startsWith('__') && isWritable;
@@ -389,21 +359,27 @@ export class Cc65DebugInfo {
             }
         }
 
+        // Definition (type=lab, has val) per symbol name, for resolving the
+        // imported syms below without rescanning data.syms for each one.
+        const definitionByName = new Map<string, DbgSym>();
+        for (const sym of data.syms) {
+            if (sym.type === 'lab' && sym.val !== undefined && !definitionByName.has(sym.name)) {
+                definitionByName.set(sym.name, sym);
+            }
+        }
+
         // Add csym ext variables -- these are the actual C globals
         for (const csym of data.csyms) {
             if (csym.sc === 'ext' && csym.sym !== undefined) {
                 let sym = data.syms[csym.sym];
                 if (sym && sym.type === 'imp' && sym.val === undefined) {
-                    const exportSym = data.syms.find(
-                        s => s.name === sym!.name && s.type === 'lab' && s.val !== undefined
-                    );
-                    if (exportSym) sym = exportSym;
+                    sym = definitionByName.get(sym.name) ?? sym;
                 }
                 if (sym && sym.val !== undefined) {
                     const seg = sym.seg !== undefined ? segMap.get(sym.seg) : undefined;
                     // Skip read-only segments (RODATA, CODE, etc.) -- these are const data
                     if (seg && seg.type === 'ro') continue;
-                    const isZP = seg ? (seg.name === 'ZEROPAGE' || seg.name === 'EXTZP') : false;
+                    const isZP = seg ? isZeroPageSegment(seg.name) : false;
                     // Mark existing asm symbol as C variable, or add new
                     const existing = symbols.find(s => s.name === sym!.name);
                     if (existing) {
@@ -438,7 +414,7 @@ export class Cc65DebugInfo {
             // EXEHDR/DIRECTORY could compete with a real ZEROPAGE/EXTZP
             // candidate at the same aliased address; keep these out entirely.
             const symSeg = segMap.get(sym.seg);
-            if (symSeg && (symSeg.name === 'EXEHDR' || symSeg.name === 'DIRECTORY' || symSeg.name === 'NULL')) continue;
+            if (symSeg && isLayoutOnlySegment(symSeg.name)) continue;
 
             const existing = addressToSource.get(sym.val);
             if (existing?.some(c => c.segmentId === sym.seg)) continue;
@@ -505,10 +481,6 @@ export class Cc65DebugInfo {
                     if (size === undefined) { functionsMissingSize++; continue; }
                     const address = sym.val;
                     const endAddress = address + size - 1;
-                    // Pick the source candidate in the function's own segment so
-                    // an overlapping overlay's line record is not used.
-                    const candidates = addressToSource.get(address);
-                    const loc = candidates?.find(c => c.segmentId === sym.seg) ?? candidates?.[0];
                     const seg = sym.seg !== undefined ? segMap.get(sym.seg) : undefined;
                     const segmentId = sym.seg ?? -1;
                     const mod = scope.mod !== undefined ? modMap.get(scope.mod) : undefined;
@@ -517,17 +489,24 @@ export class Cc65DebugInfo {
                         name: csym.name,
                         address,
                         addressEnd: endAddress,
-                        source: loc?.source || '',
-                        line: loc?.line || 0,
                         segment: seg?.name || '',
                         segmentId,
                         isLibrary: lib !== undefined,
-                        libraryName: lib?.name,
                     });
                     scopeFunctionMap.set(csym.scope, { address, endAddress, segmentId });
                     if (sym.seg !== undefined) codeSegmentIds.add(sym.seg);
                 }
             }
+        }
+
+        // Deepest auto-local offset per scope, used below to correct the stack
+        // pointer. Precomputed in one pass -- scanning every csym per local was
+        // quadratic on large projects.
+        const scopeMaxStackOffset = new Map<number, number>();
+        for (const csym of data.csyms) {
+            if (csym.sc !== 'auto' || csym.scope === undefined || csym.offs === undefined) continue;
+            const current = scopeMaxStackOffset.get(csym.scope) ?? 0;
+            if (-csym.offs > current) scopeMaxStackOffset.set(csym.scope, -csym.offs);
         }
 
         // Second pass: extract local variables (csyms with sc=auto, sc=reg, or sc=static)
@@ -545,18 +524,9 @@ export class Cc65DebugInfo {
 
             // Walk up the scope tree to find the enclosing function
             let funcScope: { address: number; endAddress: number; segmentId: number } | undefined;
-            let maxStackOffset = 0;
-
-            // Collect max offset from siblings for stack pointer correction
-            if (csym.sc === 'auto' && csym.offs !== undefined) {
-                for (const sibling of data.csyms) {
-                    if (sibling.scope === csym.scope && sibling.sc === 'auto' && sibling.offs !== undefined) {
-                        if (-sibling.offs > maxStackOffset) {
-                            maxStackOffset = -sibling.offs;
-                        }
-                    }
-                }
-            }
+            const maxStackOffset = (csym.sc === 'auto' && csym.offs !== undefined)
+                ? (scopeMaxStackOffset.get(csym.scope) ?? 0)
+                : 0;
 
             // Walk up to find function scope
             let currentScope = csym.scope;
@@ -586,7 +556,6 @@ export class Cc65DebugInfo {
                 }
                 locals.push({
                     name: csym.name,
-                    scopeId: csym.scope,
                     functionAddress: funcScope.address,
                     functionEndAddress: funcScope.endAddress,
                     stackOffset: 0,
@@ -597,7 +566,6 @@ export class Cc65DebugInfo {
             } else {
                 locals.push({
                     name: csym.name,
-                    scopeId: csym.scope,
                     functionAddress: funcScope.address,
                     functionEndAddress: funcScope.endAddress,
                     // cc65 omits offs from the text when it is 0 (e.g. the last
@@ -621,7 +589,6 @@ export class Cc65DebugInfo {
                 start: s.start,
                 size: s.size,
                 type: s.type || 'rw',
-                kind: codeSegmentIds.has(s.id) ? 'code' : 'data',
             }));
 
         if (linesMissingFile > 0 || linesMissingSpan > 0 || functionsMissingSize > 0) {
@@ -685,6 +652,15 @@ export class Cc65DebugInfo {
         }
 
         return { key, attrs };
+    }
+
+    private static getOrCreate<K, V>(map: Map<K, V>, key: K, factory: () => V): V {
+        let value = map.get(key);
+        if (value === undefined) {
+            value = factory();
+            map.set(key, value);
+        }
+        return value;
     }
 
     private static toArray(val: unknown): number[] {

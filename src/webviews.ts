@@ -6,7 +6,7 @@ import { logError } from './log';
 // Shared framebuffer stream -- one TCP connection, multiple subscribers
 let sharedStream: FramebufferStreamClient | undefined;
 
-export function getSharedStream(): FramebufferStreamClient {
+function getSharedStream(): FramebufferStreamClient {
     if (!sharedStream) {
         sharedStream = new FramebufferStreamClient();
         sharedStream.on('error', (err: Error) => {
@@ -54,8 +54,6 @@ export class ScreenViewProvider implements vscode.WebviewViewProvider {
     private frameHandler: ((frame: FrameData) => void) | null = null;
     private statusHandler: ((connected: boolean) => void) | null = null;
     private errorHandler: ((err: Error) => void) | null = null;
-
-    constructor(private readonly _extensionUri: vscode.Uri) {}
 
     public setConnection(monitor: DebugMonitorClient): void {
         this.monitor = monitor;

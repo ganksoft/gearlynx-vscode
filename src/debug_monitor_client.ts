@@ -281,8 +281,6 @@ export class DebugMonitorClient extends EventEmitter {
         if ('event' in msg) {
             // Async event
             const evt = msg as MonitorEvent;
-            this.emit('event', evt);
-
             if (evt.event === 'stopped') {
                 this.emit('stopped', evt.data);
             } else if (evt.event === 'resumed') {

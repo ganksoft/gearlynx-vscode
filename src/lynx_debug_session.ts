@@ -19,11 +19,19 @@ import * as cp from 'child_process';
 import { DebugMonitorClient, CLIENT_PROTOCOL_VERSION } from './debug_monitor_client';
 import { DebugInfo } from './debug_info';
 import { setActiveSession } from './extension';
-import { CpuRegisters } from './types';
+import { CpuRegisters, DebugSymbol } from './types';
 import { expandTilde } from './paths';
+import { hex, formatByteWord } from './format';
 import { logInfo, logWarn, logError } from './log';
 
 const THREAD_ID = 1;
+
+// CPU register names accepted in watch expressions, breakpoint conditions and
+// logpoint messages. The condition pattern is built from the same list so the
+// two cannot drift apart.
+const REGISTER_NAMES: string[] = ['pc', 'a', 'x', 'y', 's', 'p'];
+const REGISTER_CONDITION_RE =
+    new RegExp(`^(${REGISTER_NAMES.join('|')})\\s*(==|!=|<|>|<=|>=)\\s*(\\$?[0-9a-fA-Fx]+)$`, 'i');
 
 interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     rom: string;
@@ -62,6 +70,13 @@ export class LynxDebugSession extends LoggingDebugSession {
     private functionBreakpoints = new Set<number>();
     // Track instruction breakpoints (address set)
     private instructionBreakpoints = new Set<number>();
+    // Hits so far per hit-count breakpoint address
+    private hitCounts = new Map<number, number>();
+    // Registers and hardware status don't change while the emulator is paused,
+    // but several scopes ask for them on every stop. Cache the in-flight
+    // promise and drop it whenever execution state changes.
+    private cachedRegisters: Promise<CpuRegisters> | null = null;
+    private cachedHardware: Promise<Record<string, unknown>> | null = null;
     // Saved launch args for restart
     private launchArgs: LaunchRequestArguments | null = null;
     // Source-line stepping state
@@ -74,12 +89,32 @@ export class LynxDebugSession extends LoggingDebugSession {
     private traceSteps = false;
     private static readonly SOURCE_STEP_MAX = 100;
 
+    // Drives both scopesRequest and variablesRequest, so a scope's label, its
+    // variable-handle key and its populator can never drift apart.
+    private readonly scopeSpecs: {
+        label: string;
+        key: string;
+        needsDebugInfo: boolean;
+        populate: (variables: Variable[]) => Promise<void>;
+    }[] = [
+        { label: 'Registers', key: 'registers', needsDebugInfo: false, populate: v => this.populateRegisters(v) },
+        { label: 'Flags', key: 'flags', needsDebugInfo: false, populate: v => this.populateFlags(v) },
+        { label: 'Locals', key: 'locals', needsDebugInfo: true, populate: v => this.populateLocals(v) },
+        { label: 'Zero Page', key: 'zeropage', needsDebugInfo: true, populate: v => this.populateZeroPage(v) },
+        { label: 'Globals', key: 'globals', needsDebugInfo: true, populate: v => this.populateGlobals(v) },
+        { label: 'Hardware', key: 'hardware', needsDebugInfo: false, populate: v => this.populateHardware(v) },
+        { label: 'Timers', key: 'timers', needsDebugInfo: false, populate: v => this.populateTimers(v) },
+        { label: 'Audio', key: 'audio', needsDebugInfo: false, populate: v => this.populateAudio(v) },
+    ];
+
     public constructor() {
         super('lynxdebug-adapter.log');
         this.monitor = new DebugMonitorClient();
 
         this.monitor.on('stopped', (data: Record<string, unknown>) => {
             const reason = (data?.reason as string) || 'step';
+            // Before any handler below reads state -- the emulator has moved.
+            this.invalidateStateCache();
 
             // If we're in a source-line step loop, keep going regardless of stop reason
             if (this.sourceStepActive) {
@@ -98,6 +133,7 @@ export class LynxDebugSession extends LoggingDebugSession {
         });
 
         this.monitor.on('resumed', () => {
+            this.invalidateStateCache();
             // Don't send ContinuedEvent during source-line step loop
             if (this.sourceStepActive) return;
             this.sendEvent(new ContinuedEvent(THREAD_ID));
@@ -435,18 +471,17 @@ export class LynxDebugSession extends LoggingDebugSession {
         response: DebugProtocol.StepBackResponse,
         _args: DebugProtocol.StepBackArguments
     ): Promise<void> {
+        let stepped = false;
         try {
-            const ok = await this.monitor.rewindStepBack();
-            this.sendResponse(response);
-            if (ok) {
-                this.sendEvent(new StoppedEvent('step', THREAD_ID));
-            }
-            return;
+            stepped = await this.monitor.rewindStepBack();
         } catch (err) {
             response.success = false;
             response.message = `Step back failed: ${err}`;
         }
         this.sendResponse(response);
+        if (stepped) {
+            this.sendEvent(new StoppedEvent('step', THREAD_ID));
+        }
     }
 
     protected reverseContinueRequest(
@@ -473,7 +508,7 @@ export class LynxDebugSession extends LoggingDebugSession {
         _args: DebugProtocol.StackTraceArguments
     ): Promise<void> {
         try {
-            const regs = await this.monitor.getRegisters();
+            const regs = await this.getRegisters();
             const frames: StackFrame[] = [];
 
             // Current frame
@@ -540,33 +575,9 @@ export class LynxDebugSession extends LoggingDebugSession {
         this.variableHandles.clear();
         this.nextVarRef = 1;
 
-        const registersRef = this.allocVariableRef('registers');
-        const flagsRef = this.allocVariableRef('flags');
-
-        const scopes: Scope[] = [
-            new Scope('Registers', registersRef, false),
-            new Scope('Flags', flagsRef, false),
-        ];
-
-        if (this.debugInfo) {
-            const localsRef = this.allocVariableRef('locals');
-            scopes.push(new Scope('Locals', localsRef, false));
-
-            const zpRef = this.allocVariableRef('zeropage');
-            scopes.push(new Scope('Zero Page', zpRef, false));
-
-            const globalsRef = this.allocVariableRef('globals');
-            scopes.push(new Scope('Globals', globalsRef, false));
-        }
-
-        const hwRef = this.allocVariableRef('hardware');
-        scopes.push(new Scope('Hardware', hwRef, false));
-
-        const timersRef = this.allocVariableRef('timers');
-        scopes.push(new Scope('Timers', timersRef, false));
-
-        const audioRef = this.allocVariableRef('audio');
-        scopes.push(new Scope('Audio', audioRef, false));
+        const scopes: Scope[] = this.scopeSpecs
+            .filter(spec => !spec.needsDebugInfo || this.debugInfo)
+            .map(spec => new Scope(spec.label, this.allocVariableRef(spec.key), false));
 
         response.body = { scopes };
         this.sendResponse(response);
@@ -577,47 +588,12 @@ export class LynxDebugSession extends LoggingDebugSession {
         args: DebugProtocol.VariablesArguments
     ): Promise<void> {
         const scopeName = this.variableHandles.get(args.variablesReference);
+        const spec = this.scopeSpecs.find(s => s.key === scopeName);
         const variables: Variable[] = [];
 
         try {
-            if (scopeName === 'registers') {
-                const regs = await this.monitor.getRegisters();
-                const pcVar = this.makeVar('PC', regs.pc, 4);
-                (pcVar as unknown as DebugProtocol.Variable).memoryReference = regs.pc.toString();
-                variables.push(pcVar);
-                variables.push(this.makeVar('A', regs.a, 2));
-                variables.push(this.makeVar('X', regs.x, 2));
-                variables.push(this.makeVar('Y', regs.y, 2));
-                const spVar = this.makeVar('S', regs.s, 2);
-                (spVar as unknown as DebugProtocol.Variable).memoryReference = (0x0100 + regs.s).toString();
-                variables.push(spVar);
-                variables.push(this.makeVar('P', regs.p, 2));
-                // Memory region shortcuts
-                const ramVar = new Variable('RAM', '$0000-$FFFF', 0);
-                (ramVar as unknown as DebugProtocol.Variable).memoryReference = '0';
-                variables.push(ramVar);
-            } else if (scopeName === 'flags') {
-                const regs = await this.monitor.getRegisters();
-                const p = regs.p;
-                variables.push(new Variable('N (Negative)', (p & 0x80) ? '1' : '0', 0));
-                variables.push(new Variable('V (Overflow)', (p & 0x40) ? '1' : '0', 0));
-                variables.push(new Variable('B (Break)', (p & 0x10) ? '1' : '0', 0));
-                variables.push(new Variable('D (Decimal)', (p & 0x08) ? '1' : '0', 0));
-                variables.push(new Variable('I (IRQ Disable)', (p & 0x04) ? '1' : '0', 0));
-                variables.push(new Variable('Z (Zero)', (p & 0x02) ? '1' : '0', 0));
-                variables.push(new Variable('C (Carry)', (p & 0x01) ? '1' : '0', 0));
-            } else if (scopeName === 'locals' && this.debugInfo) {
-                await this.populateLocals(variables);
-            } else if (scopeName === 'zeropage' && this.debugInfo) {
-                await this.populateZeroPage(variables);
-            } else if (scopeName === 'globals' && this.debugInfo) {
-                await this.populateGlobals(variables);
-            } else if (scopeName === 'hardware') {
-                await this.populateHardware(variables);
-            } else if (scopeName === 'timers') {
-                await this.populateTimers(variables);
-            } else if (scopeName === 'audio') {
-                await this.populateAudio(variables);
+            if (spec && (!spec.needsDebugInfo || this.debugInfo)) {
+                await spec.populate(variables);
             }
         } catch {
             // Return empty if disconnected
@@ -627,10 +603,39 @@ export class LynxDebugSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
+    private async populateRegisters(variables: Variable[]): Promise<void> {
+        const regs = await this.getRegisters();
+        const pcVar = this.makeVar('PC', regs.pc, 4);
+        (pcVar as unknown as DebugProtocol.Variable).memoryReference = regs.pc.toString();
+        variables.push(pcVar);
+        variables.push(this.makeVar('A', regs.a, 2));
+        variables.push(this.makeVar('X', regs.x, 2));
+        variables.push(this.makeVar('Y', regs.y, 2));
+        const spVar = this.makeVar('S', regs.s, 2);
+        (spVar as unknown as DebugProtocol.Variable).memoryReference = (0x0100 + regs.s).toString();
+        variables.push(spVar);
+        variables.push(this.makeVar('P', regs.p, 2));
+        // Memory region shortcuts
+        const ramVar = new Variable('RAM', '$0000-$FFFF', 0);
+        (ramVar as unknown as DebugProtocol.Variable).memoryReference = '0';
+        variables.push(ramVar);
+    }
+
+    private async populateFlags(variables: Variable[]): Promise<void> {
+        const p = (await this.getRegisters()).p;
+        variables.push(new Variable('N (Negative)', (p & 0x80) ? '1' : '0', 0));
+        variables.push(new Variable('V (Overflow)', (p & 0x40) ? '1' : '0', 0));
+        variables.push(new Variable('B (Break)', (p & 0x10) ? '1' : '0', 0));
+        variables.push(new Variable('D (Decimal)', (p & 0x08) ? '1' : '0', 0));
+        variables.push(new Variable('I (IRQ Disable)', (p & 0x04) ? '1' : '0', 0));
+        variables.push(new Variable('Z (Zero)', (p & 0x02) ? '1' : '0', 0));
+        variables.push(new Variable('C (Carry)', (p & 0x01) ? '1' : '0', 0));
+    }
+
     private async populateLocals(variables: Variable[]): Promise<void> {
         if (!this.debugInfo) return;
 
-        const regs = await this.monitor.getRegisters();
+        const regs = await this.getRegisters();
         const localVars = this.debugInfo.getLocalsForAddress(regs.pc);
 
         if (localVars.length === 0) {
@@ -651,11 +656,7 @@ export class LynxDebugSession extends LoggingDebugSession {
         // and don't touch it.
         let stackPtr = 0;
         if (localVars.some(l => l.registerAddress === undefined)) {
-            const spAddr = this.debugInfo.getZeropageStackPointerAddr();
-            const spHex = await this.monitor.getMemory(0, spAddr, 2);
-            const spLo = parseInt(spHex.substring(0, 2), 16);
-            const spHi = parseInt(spHex.substring(2, 4), 16);
-            stackPtr = spLo | (spHi << 8);
+            stackPtr = (await this.readWord(this.debugInfo.getZeropageStackPointerAddr())).word;
         }
 
         for (const local of localVars) {
@@ -666,16 +667,9 @@ export class LynxDebugSession extends LoggingDebugSession {
                 ? local.registerAddress
                 : stackPtr + local.stackPointerOffset + local.stackOffset;
             try {
-                const hex = await this.monitor.getMemory(0, addr & 0xFFFF, 2);
-                const lo = parseInt(hex.substring(0, 2), 16);
-                const hi = parseInt(hex.substring(2, 4), 16);
-                const word = lo | (hi << 8);
-                const addrStr = `$${(addr & 0xFFFF).toString(16).toUpperCase().padStart(4, '0')}`;
-                variables.push(new Variable(
-                    local.name,
-                    `$${lo.toString(16).toUpperCase().padStart(2, '0')} (${lo}) [w:$${word.toString(16).toUpperCase().padStart(4, '0')}] @${addrStr}`,
-                    0
-                ));
+                const masked = addr & 0xFFFF;
+                const { lo, hi } = await this.readWord(masked);
+                variables.push(new Variable(local.name, formatByteWord(lo, hi, masked), 0));
             } catch {
                 variables.push(new Variable(local.name, '<unavailable>', 0));
             }
@@ -684,49 +678,73 @@ export class LynxDebugSession extends LoggingDebugSession {
 
     private async populateGlobals(variables: Variable[]): Promise<void> {
         if (!this.debugInfo) return;
-        const symbols = this.debugInfo.getSymbols()
-            .filter(s => s.isCVariable && !s.isZeroPage)
-            .sort((a, b) => a.name.localeCompare(b.name));
-        for (const sym of symbols) {
-            const v = await this.readSymbolValue(sym.name, sym.address);
-            variables.push(v);
-        }
+        await this.populateSymbols(variables, this.debugInfo.getSymbols().filter(s => s.isCVariable && !s.isZeroPage));
     }
 
     private async populateZeroPage(variables: Variable[]): Promise<void> {
         if (!this.debugInfo) return;
-        const zpSymbols = this.debugInfo.getZeroPageSymbols()
-            .filter(s => s.isCVariable)
-            .sort((a, b) => a.name.localeCompare(b.name));
-        for (const sym of zpSymbols) {
-            const v = await this.readSymbolValue(sym.name, sym.address);
-            variables.push(v);
+        await this.populateSymbols(variables, this.debugInfo.getZeroPageSymbols().filter(s => s.isCVariable));
+    }
+
+    private async populateSymbols(variables: Variable[], symbols: DebugSymbol[]): Promise<void> {
+        const sorted = symbols.sort((a, b) => a.name.localeCompare(b.name));
+        const memory = await this.readSymbolMemory(sorted);
+        for (const sym of sorted) {
+            const lo = memory.get(sym.address);
+            const hi = memory.get(sym.address + 1);
+            if (lo === undefined || hi === undefined) {
+                variables.push(new Variable(sym.name, '<unavailable>', 0));
+                continue;
+            }
+            const v: DebugProtocol.Variable = {
+                name: sym.name,
+                value: formatByteWord(lo, hi, sym.address),
+                variablesReference: 0,
+                memoryReference: sym.address.toString(),
+            };
+            variables.push(v as Variable);
         }
     }
 
-    private async readSymbolValue(name: string, address: number): Promise<Variable> {
-        try {
-            const hex = await this.monitor.getMemory(0, address, 2);
-            const lo = parseInt(hex.substring(0, 2), 16);
-            const hi = parseInt(hex.substring(2, 4), 16);
-            const word = lo | (hi << 8);
-            const addrStr = `$${address.toString(16).toUpperCase().padStart(4, '0')}`;
-            const v: DebugProtocol.Variable = {
-                name: name,
-                value: `$${lo.toString(16).toUpperCase().padStart(2, '0')} (${lo}) [w:$${word.toString(16).toUpperCase().padStart(4, '0')}] @${addrStr}`,
-                variablesReference: 0,
-                memoryReference: address.toString(),
-            };
-            return v as Variable;
-        } catch {
-            return new Variable(name, '<unavailable>', 0);
+    // One memory_get per symbol means hundreds of sequential round-trips every
+    // time a scope is expanded, so merge the 2-byte windows into contiguous
+    // ranges (a small gap is cheaper to read than an extra request) and fetch
+    // those in parallel. Addresses left unset read as <unavailable>.
+    private async readSymbolMemory(symbols: DebugSymbol[]): Promise<Map<number, number>> {
+        const MAX_GAP = 16;
+        const addresses = [...new Set(symbols.map(s => s.address))].sort((a, b) => a - b);
+
+        const ranges: { start: number; end: number }[] = [];
+        for (const addr of addresses) {
+            const end = Math.min(0xFFFF, addr + 1);
+            const last = ranges[ranges.length - 1];
+            if (last && addr - last.end <= MAX_GAP) {
+                last.end = Math.max(last.end, end);
+            } else {
+                ranges.push({ start: addr, end });
+            }
         }
+
+        const bytes = new Map<number, number>();
+        await Promise.all(ranges.map(async (range) => {
+            const size = range.end - range.start + 1;
+            try {
+                const data = await this.monitor.getMemory(0, range.start, size);
+                for (let i = 0; i < size; i++) {
+                    const byte = parseInt(data.substring(i * 2, i * 2 + 2), 16);
+                    if (!isNaN(byte)) bytes.set(range.start + i, byte);
+                }
+            } catch {
+                // Leave this range unset.
+            }
+        }));
+        return bytes;
     }
 
     private async populateHardware(variables: Variable[]): Promise<void> {
         try {
-            const hw = await this.monitor.getHardwareStatus();
-            const regs = await this.monitor.getRegisters();
+            const hw = await this.getHardwareStatus();
+            const regs = await this.getRegisters();
 
             variables.push(new Variable('Cycles', `${regs.cycles}`, 0));
             variables.push(new Variable('CPU Halted', `${hw['halted']}`, 0));
@@ -773,7 +791,7 @@ export class LynxDebugSession extends LoggingDebugSession {
 
     private async populateTimers(variables: Variable[]): Promise<void> {
         try {
-            const hw = await this.monitor.getHardwareStatus();
+            const hw = await this.getHardwareStatus();
             const timers = hw['timers'] as Record<string, unknown> | undefined;
             if (timers && timers['timers']) {
                 const timerArr = timers['timers'] as Array<Record<string, unknown>>;
@@ -797,7 +815,7 @@ export class LynxDebugSession extends LoggingDebugSession {
 
     private async populateAudio(variables: Variable[]): Promise<void> {
         try {
-            const hw = await this.monitor.getHardwareStatus();
+            const hw = await this.getHardwareStatus();
             const audio = hw['audio'] as Record<string, unknown> | undefined;
             if (audio && audio['channels']) {
                 const channels = audio['channels'] as Array<Record<string, unknown>>;
@@ -833,12 +851,8 @@ export class LynxDebugSession extends LoggingDebugSession {
         for (const addr of prevAddresses) {
             this.breakpointConditions.delete(addr);
             this.breakpointLogMessages.delete(addr);
-            try {
-                await this.monitor.deleteBreakpoint(addr);
-            } catch {
-                // ignore errors on delete
-            }
         }
+        await this.clearBreakpoints(prevAddresses);
 
         const newAddresses: number[] = [];
 
@@ -905,14 +919,12 @@ export class LynxDebugSession extends LoggingDebugSession {
             const expr = args.expression.trim();
 
             // Check for register names
-            const regNames = ['pc', 'a', 'x', 'y', 's', 'p'];
             const lowerExpr = expr.toLowerCase();
-            if (regNames.includes(lowerExpr)) {
-                const regs = await this.monitor.getRegisters();
+            if (REGISTER_NAMES.includes(lowerExpr)) {
+                const regs = await this.getRegisters();
                 const val = regs[lowerExpr as keyof CpuRegisters] as number;
-                const width = lowerExpr === 'pc' ? 4 : 2;
                 response.body = {
-                    result: `$${val.toString(16).toUpperCase().padStart(width, '0')} (${val})`,
+                    result: `${hex(val, lowerExpr === 'pc' ? 4 : 2)} (${val})`,
                     variablesReference: 0
                 };
                 this.sendResponse(response);
@@ -926,10 +938,9 @@ export class LynxDebugSession extends LoggingDebugSession {
             }
             if (addrMatch) {
                 const addr = parseInt(addrMatch[1], 16);
-                const hex = await this.monitor.getMemory(0, addr, 1);
-                const val = parseInt(hex.substring(0, 2), 16);
+                const val = await this.readByte(addr);
                 response.body = {
-                    result: `[$${addr.toString(16).toUpperCase().padStart(4, '0')}] = $${val.toString(16).toUpperCase().padStart(2, '0')} (${val})`,
+                    result: `[${hex(addr, 4)}] = ${hex(val, 2)} (${val})`,
                     variablesReference: 0
                 };
                 this.sendResponse(response);
@@ -940,13 +951,9 @@ export class LynxDebugSession extends LoggingDebugSession {
             if (this.debugInfo) {
                 const sym = this.debugInfo.findSymbol(expr);
                 if (sym) {
-                    const hex = await this.monitor.getMemory(0, sym.address, 2);
-                    const lo = parseInt(hex.substring(0, 2), 16);
-                    const hi = parseInt(hex.substring(2, 4), 16);
-                    const word = lo | (hi << 8);
-                    const addrStr = `$${sym.address.toString(16).toUpperCase().padStart(4, '0')}`;
+                    const { lo, hi } = await this.readWord(sym.address);
                     response.body = {
-                        result: `$${lo.toString(16).toUpperCase().padStart(2, '0')} (${lo}) [w:$${word.toString(16).toUpperCase().padStart(4, '0')}] @${addrStr}`,
+                        result: formatByteWord(lo, hi, sym.address),
                         variablesReference: 0,
                         memoryReference: sym.address.toString()
                     };
@@ -1052,11 +1059,9 @@ export class LynxDebugSession extends LoggingDebugSession {
 
     // -- Breakpoint hit handling (conditional, logpoints) --
 
-    private hitCounts = new Map<number, number>();
-
     private async handleBreakpointHit(): Promise<void> {
         try {
-            const regs = await this.monitor.getRegisters();
+            const regs = await this.getRegisters();
 
             // Check for logpoint first
             const logMsg = this.breakpointLogMessages.get(regs.pc);
@@ -1102,19 +1107,18 @@ export class LynxDebugSession extends LoggingDebugSession {
 
     private async interpolateLogMessage(msg: string): Promise<string> {
         // Replace {expression} with evaluated values
-        const regs = await this.monitor.getRegisters();
+        const regs = await this.getRegisters();
         return msg.replace(/\{([^}]+)\}/g, (_match, expr: string) => {
             const e = expr.trim().toLowerCase();
             // Register names
-            if (['pc', 'a', 'x', 'y', 's', 'p'].includes(e)) {
+            if (REGISTER_NAMES.includes(e)) {
                 const val = regs[e as keyof CpuRegisters] as number;
-                const w = e === 'pc' ? 4 : 2;
-                return `$${val.toString(16).toUpperCase().padStart(w, '0')}`;
+                return hex(val, e === 'pc' ? 4 : 2);
             }
             // Symbol lookup
             if (this.debugInfo) {
                 const sym = this.debugInfo.findSymbol(expr.trim());
-                if (sym) return `$${sym.address.toString(16).toUpperCase().padStart(4, '0')}`;
+                if (sym) return hex(sym.address, 4);
             }
             return `{${expr}}`;
         });
@@ -1125,10 +1129,10 @@ export class LynxDebugSession extends LoggingDebugSession {
         //   A == 5, X != 0, Y > 10
         //   $addr == value (memory byte comparison)
         //   symbolName == value
-        const regs = await this.monitor.getRegisters();
+        const regs = await this.getRegisters();
 
         // Try "register op value"
-        const regMatch = expr.match(/^(pc|a|x|y|s|p)\s*(==|!=|<|>|<=|>=)\s*(\$?[0-9a-fA-Fx]+)$/i);
+        const regMatch = expr.match(REGISTER_CONDITION_RE);
         if (regMatch) {
             const regName = regMatch[1].toLowerCase();
             const op = regMatch[2];
@@ -1143,9 +1147,7 @@ export class LynxDebugSession extends LoggingDebugSession {
             const addr = parseInt(memMatch[1], 16);
             const op = memMatch[2];
             const val = this.parseNumber(memMatch[3]);
-            const hex = await this.monitor.getMemory(0, addr, 1);
-            const memVal = parseInt(hex.substring(0, 2), 16);
-            return this.compareValues(memVal, op, val);
+            return this.compareValues(await this.readByte(addr), op, val);
         }
 
         // Try "symbol op value"
@@ -1156,9 +1158,7 @@ export class LynxDebugSession extends LoggingDebugSession {
                 if (sym) {
                     const op = symMatch[2];
                     const val = this.parseNumber(symMatch[3]);
-                    const hex = await this.monitor.getMemory(0, sym.address, 1);
-                    const memVal = parseInt(hex.substring(0, 2), 16);
-                    return this.compareValues(memVal, op, val);
+                    return this.compareValues(await this.readByte(sym.address), op, val);
                 }
             }
         }
@@ -1208,10 +1208,9 @@ export class LynxDebugSession extends LoggingDebugSession {
         }
 
         if (address !== undefined) {
-            const addrStr = `$${address.toString(16).toUpperCase().padStart(4, '0')}`;
             response.body = {
                 dataId: address.toString(),
-                description: `${name} @${addrStr}`,
+                description: `${name} @${hex(address, 4)}`,
                 accessTypes: ['read', 'write', 'readWrite'],
                 canPersist: false,
             };
@@ -1229,14 +1228,7 @@ export class LynxDebugSession extends LoggingDebugSession {
         response: DebugProtocol.SetDataBreakpointsResponse,
         args: DebugProtocol.SetDataBreakpointsArguments
     ): Promise<void> {
-        // Clear existing data breakpoints
-        for (const addr of this.dataBreakpoints) {
-            try {
-                await this.monitor.deleteBreakpoint(addr);
-            } catch {
-                // ignore
-            }
-        }
+        await this.clearBreakpoints(this.dataBreakpoints);
         this.dataBreakpoints.clear();
 
         const resultBps: DebugProtocol.Breakpoint[] = [];
@@ -1280,9 +1272,9 @@ export class LynxDebugSession extends LoggingDebugSession {
             if (scopeName === 'registers') {
                 const val = this.parseNumber(args.value);
                 await this.monitor.setRegister(args.name, val);
-                const width = args.name === 'PC' ? 4 : 2;
+                this.invalidateStateCache();
                 response.body = {
-                    value: `$${val.toString(16).toUpperCase().padStart(width, '0')} (${val})`,
+                    value: `${hex(val, args.name === 'PC' ? 4 : 2)} (${val})`,
                 };
             } else {
                 response.success = false;
@@ -1343,10 +1335,7 @@ export class LynxDebugSession extends LoggingDebugSession {
         response: DebugProtocol.SetFunctionBreakpointsResponse,
         args: DebugProtocol.SetFunctionBreakpointsArguments
     ): Promise<void> {
-        // Clear existing function breakpoints
-        for (const addr of this.functionBreakpoints) {
-            try { await this.monitor.deleteBreakpoint(addr); } catch { /* ignore */ }
-        }
+        await this.clearBreakpoints(this.functionBreakpoints);
         this.functionBreakpoints.clear();
 
         const resultBps: DebugProtocol.Breakpoint[] = [];
@@ -1384,10 +1373,7 @@ export class LynxDebugSession extends LoggingDebugSession {
         response: DebugProtocol.SetInstructionBreakpointsResponse,
         args: DebugProtocol.SetInstructionBreakpointsArguments
     ): Promise<void> {
-        // Clear existing instruction breakpoints
-        for (const addr of this.instructionBreakpoints) {
-            try { await this.monitor.deleteBreakpoint(addr); } catch { /* ignore */ }
-        }
+        await this.clearBreakpoints(this.instructionBreakpoints);
         this.instructionBreakpoints.clear();
 
         const resultBps: DebugProtocol.Breakpoint[] = [];
@@ -1450,7 +1436,7 @@ export class LynxDebugSession extends LoggingDebugSession {
             if (loc) {
                 targets.push({
                     id: loc.address,
-                    label: `Line ${loc.line} ($${loc.address.toString(16).toUpperCase().padStart(4, '0')})`,
+                    label: `Line ${loc.line} (${hex(loc.address, 4)})`,
                     line: loc.line,
                 });
             }
@@ -1485,9 +1471,9 @@ export class LynxDebugSession extends LoggingDebugSession {
         const targets: DebugProtocol.CompletionItem[] = [];
 
         // Register names
-        for (const reg of ['PC', 'A', 'X', 'Y', 'S', 'P']) {
-            if (reg.toLowerCase().startsWith(text.toLowerCase())) {
-                targets.push({ label: reg });
+        for (const reg of REGISTER_NAMES) {
+            if (reg.startsWith(text.toLowerCase())) {
+                targets.push({ label: reg.toUpperCase() });
             }
         }
 
@@ -1517,7 +1503,7 @@ export class LynxDebugSession extends LoggingDebugSession {
             return;
         }
 
-        const regs = await this.monitor.getRegisters();
+        const regs = await this.getRegisters();
         const loc = this.debugInfo.findSourceForAddress(regs.pc);
 
         this.sourceStepOriginFile = loc?.source || '';
@@ -1528,11 +1514,10 @@ export class LynxDebugSession extends LoggingDebugSession {
         this.sourceStepActive = true;
 
         if (this.traceSteps) {
-            const pc = regs.pc.toString(16).toUpperCase().padStart(4, '0');
             const file = loc ? path.basename(loc.source) : '?';
             const line = loc?.line || 0;
             this.sendEvent(new OutputEvent(
-                `[step] begin from $${pc} ${file}:${line}\n`, 'console'));
+                `[step] begin from ${hex(regs.pc, 4)} ${file}:${line}\n`, 'console'));
         }
 
         await stepFn();
@@ -1552,9 +1537,9 @@ export class LynxDebugSession extends LoggingDebugSession {
         }
 
         try {
-            const regs = await this.monitor.getRegisters();
+            const regs = await this.getRegisters();
             const loc = this.debugInfo.findSourceForAddress(regs.pc);
-            const pc = regs.pc.toString(16).toUpperCase().padStart(4, '0');
+            const pc = hex(regs.pc, 4);
 
             if (loc) {
                 const sameFile = loc.source.toLowerCase() === this.sourceStepOriginFile.toLowerCase();
@@ -1564,7 +1549,7 @@ export class LynxDebugSession extends LoggingDebugSession {
                     const file = path.basename(loc.source);
                     const decision = (!sameFile || !sameLine) ? 'STOP' : 'continue (same line)';
                     this.sendEvent(new OutputEvent(
-                        `[step] #${this.sourceStepCount} $${pc} -> ${file}:${loc.line} ${decision}\n`, 'console'));
+                        `[step] #${this.sourceStepCount} ${pc} -> ${file}:${loc.line} ${decision}\n`, 'console'));
                 }
 
                 if (!sameFile || !sameLine) {
@@ -1577,7 +1562,7 @@ export class LynxDebugSession extends LoggingDebugSession {
                 // No source mapping -- keep stepping through unmapped code
                 if (this.traceSteps) {
                     this.sendEvent(new OutputEvent(
-                        `[step] #${this.sourceStepCount} $${pc} -> unmapped\n`, 'console'));
+                        `[step] #${this.sourceStepCount} ${pc} -> unmapped\n`, 'console'));
                 }
             }
             await this.sourceStepFn();
@@ -1601,8 +1586,60 @@ export class LynxDebugSession extends LoggingDebugSession {
         };
     }
 
+    // Every state-changing event routes through sendEvent, so invalidating here
+    // covers the stops and resumes this adapter originates itself (restart,
+    // goto, the source-step loop) as well as the monitor's own events.
+    public sendEvent(event: DebugProtocol.Event): void {
+        if (event.event === 'stopped' || event.event === 'continued') {
+            this.invalidateStateCache();
+        }
+        super.sendEvent(event);
+    }
+
+    private invalidateStateCache(): void {
+        this.cachedRegisters = null;
+        this.cachedHardware = null;
+    }
+
+    private getRegisters(): Promise<CpuRegisters> {
+        if (!this.cachedRegisters) {
+            const pending = this.monitor.getRegisters();
+            // A failed read must not stay cached for the rest of the stop.
+            pending.catch(() => { if (this.cachedRegisters === pending) this.cachedRegisters = null; });
+            this.cachedRegisters = pending;
+        }
+        return this.cachedRegisters;
+    }
+
+    private getHardwareStatus(): Promise<Record<string, unknown>> {
+        if (!this.cachedHardware) {
+            const pending = this.monitor.getHardwareStatus();
+            pending.catch(() => { if (this.cachedHardware === pending) this.cachedHardware = null; });
+            this.cachedHardware = pending;
+        }
+        return this.cachedHardware;
+    }
+
+    private async readByte(address: number): Promise<number> {
+        const data = await this.monitor.getMemory(0, address, 1);
+        return parseInt(data.substring(0, 2), 16);
+    }
+
+    private async readWord(address: number): Promise<{ lo: number; hi: number; word: number }> {
+        const data = await this.monitor.getMemory(0, address, 2);
+        const lo = parseInt(data.substring(0, 2), 16);
+        const hi = parseInt(data.substring(2, 4), 16);
+        return { lo, hi, word: lo | (hi << 8) };
+    }
+
+    private async clearBreakpoints(addresses: Iterable<number>): Promise<void> {
+        for (const addr of addresses) {
+            try { await this.monitor.deleteBreakpoint(addr); } catch { /* ignore */ }
+        }
+    }
+
     private formatAddress(addr: number): string {
-        const hex = `$${addr.toString(16).toUpperCase().padStart(4, '0')}`;
+        const addrHex = hex(addr, 4);
         if (this.debugInfo) {
             // Prefer the enclosing function: findSymbolAtAddress only matches
             // an exact entry address, missing return addresses and mid-function
@@ -1611,19 +1648,18 @@ export class LynxDebugSession extends LoggingDebugSession {
             if (fn) {
                 const offset = addr - fn.address;
                 const name = offset > 0 ? `${fn.name}+${offset}` : fn.name;
-                return `${name} (${hex})`;
+                return `${name} (${addrHex})`;
             }
             const sym = this.debugInfo.findSymbolAtAddress(addr);
             if (sym) {
-                return `${sym.name} (${hex})`;
+                return `${sym.name} (${addrHex})`;
             }
         }
-        return hex;
+        return addrHex;
     }
 
     private makeVar(name: string, value: number, width: number): Variable {
-        const hexStr = `$${value.toString(16).toUpperCase().padStart(width, '0')}`;
-        return new Variable(name, `${hexStr} (${value})`, 0);
+        return new Variable(name, `${hex(value, width)} (${value})`, 0);
     }
 
     private allocVariableRef(name: string): number {

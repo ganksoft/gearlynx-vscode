@@ -29,8 +29,10 @@ export class DebugInfo {
         }
 
         const ext = path.extname(filePath).toLowerCase();
-        const roots = sourceRoots || [];
-        roots.unshift(path.dirname(filePath));
+        // A fresh array, never the caller's: load() runs again on every debug-file
+        // watcher event with the same sourceRoots, and prepending in place would
+        // grow that array without bound.
+        const roots = [path.dirname(filePath), ...(sourceRoots ?? [])];
 
         let data: DebugInfoData | null = null;
 
@@ -60,7 +62,7 @@ export class DebugInfo {
     // Common cc65 debug-file naming conventions relative to a rom path.
     // Shared by launch-config resolution and the no-session workspace scan so
     // both pick the same file; returns all candidates so callers can log them.
-    static findCandidatePath(rom: string): { found?: string; candidates: string[] } {
+    private static findCandidatePath(rom: string): { found?: string; candidates: string[] } {
         const baseName = rom.replace(/\.[^.]+$/, '');
         const candidates = [
             baseName + '.dbg',

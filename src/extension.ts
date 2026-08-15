@@ -43,7 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Each standalone view in gearlynxDebugPanel needs its own
     // "onView:<viewId>" in package.json's activationEvents -- there is no
     // "any view in this container" wildcard.
-    screenViewProvider = new ScreenViewProvider(context.extensionUri);
+    screenViewProvider = new ScreenViewProvider();
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ScreenViewProvider.viewType, screenViewProvider, {
             webviewOptions: { retainContextWhenHidden: true }
@@ -87,34 +87,18 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            const groups = debugInfo.getOverlayGroups();
             const currentName = debugInfo.getActiveOverlayName();
-
-            // "None" resets to the unselected state (all segments active). Useful
-            // because overlay code is copied into RAM at runtime and the debugger
-            // cannot know which overlay is currently resident; the user picks.
-            const NONE_LABEL = 'None (no overlay)';
-            const items: vscode.QuickPickItem[] = [{
-                label: NONE_LABEL,
-                description: currentName === null ? '(active)' : '',
-            }];
-
-            for (const group of groups) {
-                group.segmentNames.forEach((name, i) => {
-                    if (group.segmentKinds[i] !== 'code') return;
-                    items.push({
-                        label: name,
-                        description: name === currentName ? '(active)' : '',
-                    });
-                });
-            }
+            const items: vscode.QuickPickItem[] = listCodeOverlays(debugInfo).map(choice => ({
+                label: choice.label,
+                description: choice.value === currentName ? '(active)' : '',
+            }));
 
             const picked = await vscode.window.showQuickPick(items, {
                 placeHolder: 'Select the active code overlay',
             });
 
             if (picked) {
-                selectOverlay(picked.label === NONE_LABEL ? null : picked.label);
+                selectOverlay(picked.label === NONE_OVERLAY_LABEL ? null : picked.label);
             }
         })
     );
@@ -364,6 +348,26 @@ interface OverlayChoice {
     value: string | null;
 }
 
+// "None" resets to the unselected state (all segments active). Useful because
+// overlay code is copied into RAM at runtime and the debugger cannot know
+// which overlay is currently resident; the user picks.
+const NONE_OVERLAY_LABEL = 'None (no overlay)';
+
+// Only code overlays are selectable: the selector marks which overlay's code
+// is resident in RAM. Data-kind overlays have no function symbols and are not
+// something the user steps through, so they are omitted.
+function listCodeOverlays(debugInfo: DebugInfo): OverlayChoice[] {
+    const choices: OverlayChoice[] = [{ label: NONE_OVERLAY_LABEL, value: null }];
+    for (const group of debugInfo.getOverlayGroups()) {
+        group.segmentNames.forEach((name, i) => {
+            if (group.segmentKinds[i] === 'code') {
+                choices.push({ label: name, value: name });
+            }
+        });
+    }
+    return choices;
+}
+
 class OverlayTreeProvider implements vscode.TreeDataProvider<OverlayChoice> {
     private _onDidChangeTreeData = new vscode.EventEmitter<void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -387,17 +391,6 @@ class OverlayTreeProvider implements vscode.TreeDataProvider<OverlayChoice> {
     getChildren(): OverlayChoice[] {
         const debugInfo = getEffectiveDebugInfo();
         if (!debugInfo || !debugInfo.hasOverlays()) return [];
-        const choices: OverlayChoice[] = [{ label: 'None (no overlay)', value: null }];
-        // Only code overlays are selectable: the selector marks which overlay's
-        // code is resident in RAM. Data-kind overlays have no function symbols
-        // and are not something the user steps through, so they are omitted.
-        for (const group of debugInfo.getOverlayGroups()) {
-            group.segmentNames.forEach((name, i) => {
-                if (group.segmentKinds[i] === 'code') {
-                    choices.push({ label: name, value: name });
-                }
-            });
-        }
-        return choices;
+        return listCodeOverlays(debugInfo);
     }
 }
