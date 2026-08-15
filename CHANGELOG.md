@@ -14,7 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Timers and Audio panes now read counter/backup and volume/output from the emulator's current `hardware_status` payload; they had reported `$00` for every value since Gearlynx moved those into a per-entry `registers` array.
+- Hardware pane's LCD Line row appears again (the payload renamed the field that fed it), and the cart bank rows now list every bank instead of silently showing none.
 - The source-root list no longer grows on every debug-file rebuild (each reload prepended another copy of the debug file's directory), which progressively slowed source-path resolution.
+
+### Removed
+
+- Hardware pane's DISPADR and VIDBAS rows: `hardware_status` no longer reports them and neither is readable another way (DISPADR is write-only in Mikey; `memory_get` returns the RAM under the register overlay, not the registers). They had not rendered since the payload changed.
 
 ## [0.2.8] - 2026-08-13
 

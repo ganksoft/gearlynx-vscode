@@ -33,6 +33,22 @@ const REGISTER_NAMES: string[] = ['pc', 'a', 'x', 'y', 's', 'p'];
 const REGISTER_CONDITION_RE =
     new RegExp(`^(${REGISTER_NAMES.join('|')})\\s*(==|!=|<|>|<=|>=)\\s*(\\$?[0-9a-fA-Fx]+)$`, 'i');
 
+// Mikey timer/audio registers arrive inside each entry's "registers" array as
+// [name, address, value] triples (the payload names that layout in its own
+// "fields" list). A register that isn't there renders as "--" rather than a
+// plausible-looking $00, so a payload change is visible instead of silent.
+function hwRegister(entry: Record<string, unknown>, name: string): string {
+    const registers = entry['registers'];
+    if (Array.isArray(registers)) {
+        for (const reg of registers) {
+            if (Array.isArray(reg) && reg[0] === name && typeof reg[2] === 'string') {
+                return `$${reg[2]}`;
+            }
+        }
+    }
+    return '--';
+}
+
 interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     rom: string;
     debugFile?: string;
@@ -751,38 +767,32 @@ export class LynxDebugSession extends LoggingDebugSession {
             variables.push(new Variable('IRQ Asserted', `${hw['irq_asserted']}`, 0));
             variables.push(new Variable('IRQ Pending', `${hw['irq_pending']}`, 0));
 
-            // LCD
+            // LCD. DISPADR/VIDBAS are deliberately absent: hardware_status no
+            // longer reports them, and they can't be read back another way --
+            // DISPADR is write-only in Mikey, and memory_get reads the raw RAM
+            // buffer underneath the register overlay, not the registers.
             const lcd = hw['lcd'] as Record<string, unknown> | undefined;
-            if (lcd) {
-                const lineStatus = lcd['line_status'] as Record<string, unknown> | undefined;
-                if (lineStatus) {
-                    const lineNum = lineStatus['line_number'];
-                    const lineType = lineStatus['line_type'] as string || '';
-                    if (lineNum !== undefined)
-                        variables.push(new Variable('LCD Line', `${lineNum} (${lineType})`, 0));
-                }
-                const dispAdr = lcd['display_address'] as Record<string, unknown> | undefined;
-                if (dispAdr && dispAdr['value'])
-                    variables.push(new Variable('DISPADR', `$${dispAdr['value']}`, 0));
-                const vidBas = lcd['video_base'] as Record<string, unknown> | undefined;
-                if (vidBas && vidBas['value'])
-                    variables.push(new Variable('VIDBAS', `$${vidBas['value']}`, 0));
+            const line = lcd?.['line'] as Record<string, unknown> | undefined;
+            if (line && line['line_number'] !== undefined) {
+                variables.push(new Variable(
+                    'LCD Line', `${line['line_number']} (${line['type'] as string || ''})`, 0));
             }
 
             // Cart
             const cart = hw['cart'] as Record<string, unknown> | undefined;
             if (cart) {
                 const addrGen = cart['address_generation'] as Record<string, unknown> | undefined;
-                if (addrGen) {
-                    if (addrGen['page_offset'] !== undefined)
-                        variables.push(new Variable('Cart Page', `$${addrGen['page_offset']}`, 0));
+                if (addrGen && addrGen['page_offset'] !== undefined) {
+                    variables.push(new Variable('Cart Page', `$${addrGen['page_offset']}`, 0));
                 }
-                const bank0 = cart['bank0'] as Record<string, unknown> | undefined;
-                const bank1 = cart['bank1'] as Record<string, unknown> | undefined;
-                if (bank0 && bank0['page_size'] !== undefined)
-                    variables.push(new Variable('Cart Bank0', `page:${bank0['page_size']}`, 0));
-                if (bank1 && bank1['page_size'] !== undefined)
-                    variables.push(new Variable('Cart Bank1', `page:${bank1['page_size']}`, 0));
+                const banks = cart['banks'];
+                if (Array.isArray(banks)) {
+                    for (const bank of banks as Array<Record<string, unknown>>) {
+                        const name = bank['name'] as string || `Bank ${bank['index']}`;
+                        variables.push(new Variable(
+                            `Cart ${name}`, `${bank['size_kb']}K blk:${bank['block_size']}`, 0));
+                    }
+                }
             }
         } catch {
             variables.push(new Variable('Hardware', '<unavailable>', 0));
@@ -798,12 +808,10 @@ export class LynxDebugSession extends LoggingDebugSession {
                 for (const t of timerArr) {
                     const idx = t['index'] as number;
                     const name = t['name'] as string || `Timer ${idx}`;
-                    const counter = t['counter'] as string || '00';
-                    const backup = t['backup'] as string || '00';
                     const enabled = t['enabled'] as boolean;
                     variables.push(new Variable(
                         `${idx}: ${name}`,
-                        `cnt:$${counter} bkp:$${backup} ${enabled ? 'ON' : 'off'}`,
+                        `cnt:${hwRegister(t, 'counter')} bkp:${hwRegister(t, 'backup')} ${enabled ? 'ON' : 'off'}`,
                         0
                     ));
                 }
@@ -821,12 +829,10 @@ export class LynxDebugSession extends LoggingDebugSession {
                 const channels = audio['channels'] as Array<Record<string, unknown>>;
                 for (const ch of channels) {
                     const idx = ch['index'] as number;
-                    const vol = ch['volume'] as string || '00';
-                    const output = ch['output'] as string || '00';
                     const enabled = ch['enabled'] as boolean;
                     variables.push(new Variable(
                         `Ch ${idx}`,
-                        `vol:$${vol} out:$${output} ${enabled ? 'ON' : 'off'}`,
+                        `vol:${hwRegister(ch, 'volume')} out:${hwRegister(ch, 'output')} ${enabled ? 'ON' : 'off'}`,
                         0
                     ));
                 }
