@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-08-14
+
 ### Changed
 
 - Globals and Zero Page panes now batch their memory reads, and register/hardware state is fetched once per stop, cutting hundreds of emulator round-trips per stop down to a handful.
