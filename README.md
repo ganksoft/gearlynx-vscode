@@ -74,7 +74,7 @@ to be told which.
 ### Additional Tools
 
 - **Memory Map visualization**: canvas-based address space view showing all segments with overlay column layout; works with or without an active debug session
-- **Trace Logger**: start/stop CPU trace logging, view output in the "Lynx Trace Log" output panel
+- **Trace Logger**: start/stop CPU trace logging, choose memory or disk storage, and view recent output in the "Lynx Trace Log" output panel
 - **Loaded Sources**: all source files known to the debugger are listed in VSCode's built-in "Loaded Scripts" view (Run and Debug sidebar)
 - **Extension log**: a persistent "Gearlynx Debugger" output channel showing connection status and errors (connect/attach lifecycle, protocol mismatches, socket errors), independent of the Debug Console
 - Debug-monitor disconnects also surface as a toast notification, not just a log entry
@@ -131,6 +131,10 @@ the Gearlynx repository.
 | Gearlynx Debugger | Debug-monitor protocol | Gearlynx |
 |-----------|------------------------|----------|
 | 0.1.x, 0.2.x | 1                   | 1.2.15 or later (protocolVersion 1) |
+
+Configurable trace memory capacity and disk output require **Gearlynx 1.2.27 or
+later**. Older compatible releases continue to trace to the original 100K-entry
+memory buffer.
 
 ## Quick Start
 
@@ -243,6 +247,10 @@ All settings are also editable in the VSCode Settings UI under **Extensions -> G
 | `gearlynxDebug.gearlynxPath` | `""` | Path to Gearlynx executable |
 | `gearlynxDebug.defaultPort` | `6502` | Default debug monitor TCP port |
 | `gearlynxDebug.staleSourceAction` | `prompt` | What to do when a source file is newer than the debug info: `prompt`, `build`, `warn`, or `ignore` |
+| `gearlynxDebug.traceOutput` | `memory` | Store traces in memory or write them to disk |
+| `gearlynxDebug.traceMemorySize` | `100K` | Maximum entries retained in memory mode: `100K`, `500K`, `1M`, `2M`, or `5M` |
+| `gearlynxDebug.traceDiskSize` | `100MB` | Maximum disk trace size from `10MB` through `1GB`, or `unbounded` |
+| `gearlynxDebug.traceOutputPath` | `""` | Directory for automatically named disk traces; empty uses Gearlynx's default |
 
 ### Out-of-date sources
 

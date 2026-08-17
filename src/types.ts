@@ -58,6 +58,25 @@ export interface HandshakeInfo {
     emulatorVersion: string;
 }
 
+export type TraceOutput = 'memory' | 'disk';
+export type TraceMemorySize = '100K' | '500K' | '1M' | '2M' | '5M';
+export type TraceDiskSize = '10MB' | '50MB' | '100MB' | '250MB' | '500MB' | '1GB' | 'unbounded';
+
+export interface TraceLogOptions {
+    output: TraceOutput;
+    memorySize?: TraceMemorySize;
+    diskSize?: TraceDiskSize;
+    outputPath?: string;
+}
+
+export interface TraceLogStatus {
+    status: string;
+    output?: TraceOutput;
+    memory_size?: TraceMemorySize;
+    disk_size?: TraceDiskSize;
+    output_path?: string;
+}
+
 // Debug info types for source-level debugging
 
 export interface SourceLocation {

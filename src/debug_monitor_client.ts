@@ -9,6 +9,8 @@ import {
     DisasmLine,
     DebugStatus,
     HandshakeInfo,
+    TraceLogOptions,
+    TraceLogStatus,
 } from './types';
 
 // Debug-monitor wire protocol version this client speaks. The emulator reports
@@ -170,8 +172,22 @@ export class DebugMonitorClient extends EventEmitter {
         await this.sendCommand('controller_button', { button, action });
     }
 
-    async setTraceLog(enabled: boolean, flags: number = 0xFF): Promise<void> {
-        await this.sendCommand('trace_log_set', { enabled, flags });
+    async setTraceLog(enabled: boolean, flags: number = 0xFF, options?: TraceLogOptions): Promise<TraceLogStatus> {
+        const params: Record<string, unknown> = { enabled, flags };
+        if (options) {
+            params['output'] = options.output;
+            if (options.memorySize) {
+                params['memory_size'] = options.memorySize;
+            }
+            if (options.diskSize) {
+                params['disk_size'] = options.diskSize;
+            }
+            if (options.outputPath) {
+                params['output_path'] = options.outputPath;
+            }
+        }
+        const resp = await this.sendCommand('trace_log_set', params);
+        return resp.data as unknown as TraceLogStatus;
     }
 
     async getTraceLog(start: number = -1, count: number = 200): Promise<Record<string, unknown>> {
