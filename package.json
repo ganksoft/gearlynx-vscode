@@ -261,6 +261,40 @@
           "default": "prompt",
           "description": "What to do at launch when a source file is newer than the debug info. Building runs the launch config's \"buildTask\", or the workspace's default build task."
         },
+        "gearlynxDebug.traceOutput": {
+          "type": "string",
+          "enum": ["memory", "disk"],
+          "enumDescriptions": [
+            "Keep recent trace entries in memory.",
+            "Write the full trace to disk and retain the latest 100K entries in memory. Requires Gearlynx 1.2.27 or later."
+          ],
+          "default": "memory",
+          "description": "Trace logger destination."
+        },
+        "gearlynxDebug.traceMemorySize": {
+          "type": "string",
+          "enum": ["100K", "500K", "1M", "2M", "5M"],
+          "enumDescriptions": [
+            "Preallocate approximately 9.2 MiB.",
+            "Preallocate approximately 45.8 MiB.",
+            "Preallocate approximately 91.6 MiB.",
+            "Preallocate approximately 183.1 MiB.",
+            "Preallocate approximately 457.8 MiB."
+          ],
+          "default": "100K",
+          "description": "Maximum entries retained by the trace logger in memory mode. Sizes above 100K require Gearlynx 1.2.27 or later."
+        },
+        "gearlynxDebug.traceDiskSize": {
+          "type": "string",
+          "enum": ["10MB", "50MB", "100MB", "250MB", "500MB", "1GB", "unbounded"],
+          "default": "100MB",
+          "description": "Maximum disk trace file size. Requires Gearlynx 1.2.27 or later."
+        },
+        "gearlynxDebug.traceOutputPath": {
+          "type": "string",
+          "default": "",
+          "description": "Directory for automatically named disk trace files. Leave empty to use Gearlynx's default trace directory. Requires Gearlynx 1.2.27 or later."
+        },
         "gearlynxDebug.keymap.up": {
           "type": "string",
           "default": "ArrowUp",

@@ -8,6 +8,7 @@ import { SymbolViewProvider } from './symbol_table';
 import { DebugInfo } from './debug_info';
 import { WorkspaceDebugInfoProvider } from './workspace_debug_info';
 import { getLogChannel, logInfo } from './log';
+import { TraceDiskSize, TraceLogOptions, TraceLogStatus, TraceMemorySize, TraceOutput } from './types';
 
 let activeSession: LynxDebugSession | undefined;
 let screenViewProvider: ScreenViewProvider | undefined;
@@ -120,8 +121,46 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('gearlynxDebug.startTraceLog', async () => {
             if (!activeSession) return;
             const monitor = activeSession.getMonitor();
-            await monitor.setTraceLog(true);
-            vscode.window.showInformationMessage('Trace logger started.');
+            const config = vscode.workspace.getConfiguration('gearlynxDebug');
+            const output = config.get<TraceOutput>('traceOutput', 'memory');
+            const memorySize = config.get<TraceMemorySize>('traceMemorySize', '100K');
+            const diskSize = config.get<TraceDiskSize>('traceDiskSize', '100MB');
+            const outputPath = expandTilde(config.get<string>('traceOutputPath', '').trim()) ?? '';
+            const options: TraceLogOptions = { output };
+            if (output === 'memory') {
+                options.memorySize = memorySize;
+            } else {
+                options.diskSize = diskSize;
+                if (outputPath) options.outputPath = outputPath;
+            }
+
+            const requiresGearlynx127 = output === 'disk' || memorySize !== '100K';
+            let status: TraceLogStatus;
+            try {
+                status = await monitor.setTraceLog(true, 0xFF, options);
+            } catch (err) {
+                // 1.2.27 rejects an unusable directory or capacity outright, and the
+                // rejection reads as a bare command failure without this hint.
+                const hint = requiresGearlynx127
+                    ? ' These trace storage settings require Gearlynx 1.2.27 or later.'
+                    : '';
+                const reason = err instanceof Error ? err.message : `${err}`;
+                vscode.window.showErrorMessage(`Trace logger failed to start: ${reason}.${hint}`);
+                return;
+            }
+
+            const configurationApplied = status.output === output &&
+                (output === 'memory' ? status.memory_size === memorySize : status.disk_size === diskSize);
+            if (requiresGearlynx127 && !configurationApplied) {
+                vscode.window.showWarningMessage(
+                    'Trace storage settings require Gearlynx 1.2.27 or later. ' +
+                    'Trace logging started with the legacy memory defaults.'
+                );
+            } else if (output === 'disk' && status.output_path) {
+                vscode.window.showInformationMessage(`Trace logger started: ${status.output_path}`);
+            } else {
+                vscode.window.showInformationMessage('Trace logger started.');
+            }
         })
     );
 

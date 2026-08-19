@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Out-of-date sources at launch now prompt to build first, running the launch config's new `buildTask` or the workspace's default build task, instead of only warning. Set `gearlynxDebug.staleSourceAction` (or the same key in a launch config) to `build`, `warn`, or `ignore` to change that.
+- Trace logging can now target configurable memory capacities or size-limited/unbounded disk files when used with Gearlynx 1.2.27 or later.
 
 ## [0.2.9] - 2026-08-14
 
