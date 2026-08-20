@@ -83,7 +83,10 @@ Additive changes (new optional fields/commands) do not require a bump.
 
 1. Make the change (code in `src/`, or `package.json` for commands/settings).
 2. Bump `version` in `package.json` (SemVer).
-3. Add a `CHANGELOG.md` entry -- keep each entry to one line, two at most.
+3. Add a `CHANGELOG.md` entry -- keep each entry to one line, two at most. When the
+   change came from someone else's pull request, credit them at the end of the entry:
+   `by [@user](https://github.com/user) in [#N](https://github.com/ganksoft/gearlynx-vscode/pull/N)`.
+   Use full links, not bare `@user`/`#N` -- the Marketplace Changelog tab does not autolink them.
 4. Commit, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 The release workflow publishes to the VS Marketplace using **Microsoft Entra

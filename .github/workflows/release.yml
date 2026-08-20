@@ -16,6 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Node
         uses: actions/setup-node@v5
         with:
@@ -44,7 +48,37 @@ jobs:
       - name: Publish to Visual Studio Marketplace
         run: npx @vscode/vsce publish --azure-credential --packagePath gearlynx-debugger.vsix
 
+      - name: Extract changelog section
+        id: notes
+        run: |
+          # Lift this version's section out of CHANGELOG.md so the release page
+          # shows what changed. Its "### Added"/"### Fixed" headings sit directly
+          # under the "## Gearlynx Debugger <ver>" heading in the release body below.
+          version='${{ steps.version.outputs.VERSION }}'
+          changes=$(awk -v hdr="## [$version]" '
+            index($0, hdr) == 1 { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac)
+          if [ -z "$changes" ]; then
+            echo "::warning::No CHANGELOG.md section found for $version"
+          fi
+          delim="CHANGES_EOF_$RANDOM$RANDOM"
+          {
+            echo "CHANGES<<$delim"
+            echo "$changes"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Attach VSIX to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           files: gearlynx-debugger.vsix
+          generate_release_notes: true
+          body: |
+            ## Gearlynx Debugger ${{ steps.version.outputs.VERSION }}
+
+            ${{ steps.notes.outputs.CHANGES }}
+
+            ### Install
+            Install from the [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=ganksoft.gearlynx-debugger), or download `gearlynx-debugger.vsix` below and run `code --install-extension gearlynx-debugger.vsix`.
