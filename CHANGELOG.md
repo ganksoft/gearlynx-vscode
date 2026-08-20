@@ -5,12 +5,12 @@ All notable changes to the Gearlynx Debugger extension are documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.10] - 2026-08-19
 
 ### Added
 
 - Out-of-date sources at launch now prompt to build first, running the launch config's new `buildTask` or the workspace's default build task, instead of only warning. Set `gearlynxDebug.staleSourceAction` (or the same key in a launch config) to `build`, `warn`, or `ignore` to change that.
-- Trace logging can now target configurable memory capacities or size-limited/unbounded disk files when used with Gearlynx 1.2.27 or later.
+- Trace logging can now target configurable memory capacities or size-limited/unbounded disk files when used with Gearlynx 1.2.27 or later, by [@drhelius](https://github.com/drhelius) in [#7](https://github.com/ganksoft/gearlynx-vscode/pull/7).
 
 ## [0.2.9] - 2026-08-14
 
